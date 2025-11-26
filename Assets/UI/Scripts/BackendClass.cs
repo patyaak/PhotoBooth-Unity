@@ -1,6 +1,8 @@
-
 using System.Collections.Generic;
 
+// ============================================================
+// BOOTH & THEME
+// ============================================================
 [System.Serializable]
 public class Theme
 {
@@ -19,10 +21,11 @@ public class Booth
     public string location;
     public string status;
     public bool login_required;
-    public bool payments_enabled;
+    public bool payments_enabled;         // PAYMENT FLAG
     public bool decoration_enabled;
     public bool frame_type_tab_enabled;
-    public string price;
+    public string price;                  // Frame price
+    public string gacha_price;            // Gacha price (NEW)
 }
 
 [System.Serializable]
@@ -40,9 +43,9 @@ public class BoothListResponse
     public BoothResponseData data;
 }
 
-
-
-#region frameclass
+// ============================================================
+// FRAMES
+// ============================================================
 [System.Serializable]
 public class FrameAssignment
 {
@@ -80,9 +83,18 @@ public class Frame
 }
 
 [System.Serializable]
-public class Creator { public string id; public string name; }
+public class Creator
+{
+    public string id;
+    public string name;
+}
+
 [System.Serializable]
-public class Approver { public string id; public string name; }
+public class Approver
+{
+    public string id;
+    public string name;
+}
 
 [System.Serializable]
 public class FrameAsset
@@ -103,7 +115,10 @@ public class FrameAsset
 }
 
 [System.Serializable]
-public class FrameData { public List<Frame> frames; }
+public class FrameData
+{
+    public List<Frame> frames;
+}
 
 [System.Serializable]
 public class FrameResponse
@@ -113,10 +128,50 @@ public class FrameResponse
     public FrameData data;
 }
 
-#endregion
-
 [System.Serializable]
 public class GachaFrameResponse
 {
-    public Frame frame; // Matches your JSON root object
+    public Frame frame;
+}
+
+// ============================================================
+// PAYMENT (NEW)
+// ============================================================
+[System.Serializable]
+public class PaymentRequest
+{
+    public string booth_id;
+    public float amount;
+    public string frame_id; // null for gacha
+}
+
+[System.Serializable]
+public class PaymentResponse
+{
+    public bool success;
+    public PaymentData data;
+    public string message;
+}
+
+[System.Serializable]
+public class PaymentData
+{
+    public string payment_id;
+    public string qr_code_url;
+    public string status;
+}
+
+[System.Serializable]
+public class PaymentStatusResponse
+{
+    public bool success;
+    public PaymentStatusData data;
+}
+
+[System.Serializable]
+public class PaymentStatusData
+{
+    public string payment_id;
+    public string status; // "pending", "completed", "failed", "cancelled"
+    public float amount;
 }

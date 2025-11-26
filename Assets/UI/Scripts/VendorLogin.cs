@@ -38,7 +38,7 @@ public class VendorLogin : MonoBehaviour
     void Start()
     {
         submitButton.onClick.AddListener(OnSubmitClicked);
-   
+
         mainAppPanel.SetActive(false);
 
         // Store default sprites for reset
@@ -123,8 +123,15 @@ public class VendorLogin : MonoBehaviour
                     if (boothPrice != null)
                         boothPrice.text = booth.price;
 
+                    // ============================================================
+                    // MODIFIED: Store booth settings including gacha price and payment flag
+                    // ============================================================
                     PlayerPrefs.SetString("booth_id", booth.booth_id);
+                    PlayerPrefs.SetString("gacha_price", booth.gacha_price ?? "500");
+                    PlayerPrefs.SetInt("payments_enabled", booth.payments_enabled ? 1 : 0);
                     PlayerPrefs.Save();
+
+                    Debug.Log($"💾 Booth settings saved: ID={booth.booth_id}, Price={booth.price}, Gacha={booth.gacha_price}, Payments={booth.payments_enabled}");
 
                     mainAppPanel.SetActive(true);
 
@@ -222,6 +229,8 @@ public class VendorLogin : MonoBehaviour
         Debug.Log("🔄 Switching vendor and resetting all data...");
 
         PlayerPrefs.DeleteKey("booth_id");
+        PlayerPrefs.DeleteKey("gacha_price");
+        PlayerPrefs.DeleteKey("payments_enabled");
         PlayerPrefs.Save();
 
         var deviceReg = FindAnyObjectByType<DeviceRegistration>();

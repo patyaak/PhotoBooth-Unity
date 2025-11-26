@@ -367,11 +367,58 @@ public class PhotoBoothFrameManager : MonoBehaviour
 
     public FrameItem GetSelectedFrameItem() => currentSelectedFrame;
 
+    // ============================================================
+    // MODIFIED: OnDecideButtonClicked() with Payment Integration
+    // ============================================================
     public void OnDecideButtonClicked()
     {
         FrameItem selectedItem = GetSelectedFrameItem();
-        if (selectedItem == null) return;
+        if (selectedItem == null)
+        {
+            Debug.LogWarning("❌ No frame selected!");
+            return;
+        }
 
+        // Check if payments are enabled
+        bool paymentsEnabled = PlayerPrefs.GetInt("payments_enabled", 0) == 1;
+        Debug.Log($"💳 Payments Enabled: {paymentsEnabled}");
+
+        if (paymentsEnabled)
+        {
+            if (PaymentManager.Instance == null)
+            {
+                Debug.LogError("❌ PaymentManager.Instance is NULL! Make sure PaymentManager exists in scene.");
+                ContinueAfterPayment(selectedItem);
+                return;
+            }
+
+            // Get booth price
+            string price = "1000"; // Default
+            var vendorLogin = FindAnyObjectByType<VendorLogin>();
+            if (vendorLogin != null && vendorLogin.boothPrice != null)
+            {
+                price = vendorLogin.boothPrice.text;
+            }
+
+            Debug.Log($"💳 Initiating payment for frame: {selectedItem.frameData.frame_id}, Price: {price}, Booth: {boothID}");
+
+            // Initiate payment
+            PaymentManager.Instance.InitiateFramePayment(selectedItem, boothID, price);
+        }
+        else
+        {
+            Debug.Log("💳 Payments disabled - proceeding directly to shooting");
+            // No payment required - proceed directly
+            ContinueAfterPayment(selectedItem);
+        }
+    }
+
+    // ============================================================
+    // NEW: ContinueAfterPayment() - Called after successful payment
+    // ============================================================
+    public void ContinueAfterPayment(FrameItem selectedItem)
+    {
+        // Original decide button logic
         foreach (Transform child in startShootingParent)
             Destroy(child.gameObject);
 
@@ -445,10 +492,30 @@ public class PhotoBoothFrameManager : MonoBehaviour
         currentSelectedFrame = null;
     }
 
+    // ============================================================
+    // MODIFIED: OnGatchaPlay() with Payment Integration
+    // ============================================================
     public void OnGatchaPlay()
     {
-        if (GatchaManager.Instance != null)
+        if (GatchaManager.Instance == null) return;
+
+        bool paymentsEnabled = PlayerPrefs.GetInt("payments_enabled", 0) == 1;
+
+        if (paymentsEnabled && PaymentManager.Instance != null)
         {
+            // Get gacha price and show payment immediately
+            string gachaPrice = PlayerPrefs.GetString("gacha_price", "500");
+
+            Debug.Log($"💳 Play button clicked - Showing payment panel for gacha: ¥{gachaPrice}");
+
+            // Show payment panel immediately with gacha price
+            PaymentManager.Instance.InitiateGachaPayment(boothID, gachaPrice, -1);
+        }
+        else
+        {
+            // No payment - proceed directly to gacha animation
+            Debug.Log("💳 Payments disabled - proceeding directly to gacha");
+
             if (defaultButton != null) defaultButton.interactable = false;
             if (recommendationButton != null) recommendationButton.interactable = false;
             if (myFrameButton != null) myFrameButton.interactable = false;

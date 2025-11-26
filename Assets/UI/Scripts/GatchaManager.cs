@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Networking;
 using UnityEngine.UI;
-using static UnityEngine.Rendering.DebugUI.Table;
 
 public class GatchaManager : MonoBehaviour
 {
@@ -16,15 +15,15 @@ public class GatchaManager : MonoBehaviour
     public GameObject framePrefab;
 
     public string gatchaAnimationName = "GatchaAnim";
-    public float dissolveDuration = 1.0f; // slower dissolve
+    public float dissolveDuration = 1.0f;
 
     public GameObject darkpanel;
     public GameObject darkpanel1;
     public GameObject celebration;
 
     [Header("Gatcha Win Panel")]
-    public GameObject gatchaWin;     // Parent panel for win
-    public Transform winFrameParent; // The child 'winFrame' where the result frame goes
+    public GameObject gatchaWin;
+    public Transform winFrameParent;
     public float gatchaWinFadeDuration = 0.5f;
 
     [Header("API Settings")]
@@ -43,6 +42,21 @@ public class GatchaManager : MonoBehaviour
 
     public void SetBoothID(string id) => boothID = id;
 
+    // ============================================================
+    // MODIFIED: ShowGatchaButtons() - NEW METHOD for payment flow
+    // ============================================================
+    public void ShowGatchaButtons()
+    {
+        darkpanel.SetActive(true);
+        gatchaButtons.SetActive(false);
+        PhotoBoothFrameManager.Instance.playButton.gameObject.SetActive(false);
+        PhotoBoothFrameManager.Instance.backButton.gameObject.SetActive(false);
+        StartCoroutine(DissolveFramesThenShowButtons());
+    }
+
+    // ============================================================
+    // KEPT: PlayGatchaAnimation() - For non-payment flow (if needed)
+    // ============================================================
     public void PlayGatchaAnimation()
     {
         darkpanel.SetActive(true);
@@ -50,6 +64,107 @@ public class GatchaManager : MonoBehaviour
         PhotoBoothFrameManager.Instance.playButton.gameObject.SetActive(false);
         PhotoBoothFrameManager.Instance.backButton.gameObject.SetActive(false);
         StartCoroutine(DissolveFramesThenPlayAnimation());
+    }
+
+    // ============================================================
+    // NEW: PlayGatchaAnimationAfterPayment() - Called after payment success
+    // ============================================================
+    public void PlayGatchaAnimationAfterPayment()
+    {
+        Debug.Log("🎰 Starting gacha animation after payment");
+
+        darkpanel.SetActive(true);
+        gatchaButtons.SetActive(false);
+        PhotoBoothFrameManager.Instance.playButton.gameObject.SetActive(false);
+        PhotoBoothFrameManager.Instance.backButton.gameObject.SetActive(false);
+
+        StartCoroutine(DissolveFramesThenPlayAnimationAndShowButtons());
+    }
+
+    private IEnumerator DissolveFramesThenPlayAnimationAndShowButtons()
+    {
+        // Dissolve existing frames
+        if (spawnedFrames.Count > 0)
+        {
+            foreach (GameObject frame in spawnedFrames)
+                if (frame != null)
+                    StartCoroutine(DissolveAndDestroy(frame));
+
+            yield return new WaitForSeconds(dissolveDuration + 0.1f);
+            spawnedFrames.Clear();
+        }
+
+        // Play gacha animation
+        if (gatchaObject != null)
+        {
+            gatchaObject.SetActive(true);
+            Animator anim = gatchaObject.GetComponent<Animator>();
+            if (anim != null)
+            {
+                anim.Play(gatchaAnimationName, 0, 0f);
+                yield return new WaitForSeconds(anim.GetCurrentAnimatorStateInfo(0).length);
+            }
+            gatchaObject.SetActive(false);
+        }
+
+        // Show gacha selection buttons
+        gatchaButtons.SetActive(true);
+
+        for (int i = 0; i < gatchaButtons.transform.childCount; i++)
+        {
+            int index = i;
+            Button btn = gatchaButtons.transform.GetChild(i).GetComponent<Button>();
+            if (btn != null)
+            {
+                btn.interactable = true;
+                btn.onClick.RemoveAllListeners();
+                btn.onClick.AddListener(() => OnGachaChildButtonClickedAfterPayment(index));
+            }
+        }
+    }
+
+    // ============================================================
+    // NEW: OnGachaChildButtonClickedAfterPayment() - No payment check
+    // ============================================================
+    private void OnGachaChildButtonClickedAfterPayment(int buttonIndex)
+    {
+        Debug.Log($"🎰 Gacha button {buttonIndex} clicked (payment already done)");
+
+        // Proceed directly to reveal
+        foreach (Transform child in gatchaButtons.transform)
+            child.GetComponent<Button>().interactable = false;
+
+        StartCoroutine(ShakeThenReveal(buttonIndex));
+    }
+
+    // ============================================================
+    // NEW: DissolveFramesThenShowButtons() - Shows buttons without animation
+    // ============================================================
+    private IEnumerator DissolveFramesThenShowButtons()
+    {
+        if (spawnedFrames.Count > 0)
+        {
+            foreach (GameObject frame in spawnedFrames)
+                if (frame != null)
+                    StartCoroutine(DissolveAndDestroy(frame));
+
+            yield return new WaitForSeconds(dissolveDuration + 0.1f);
+            spawnedFrames.Clear();
+        }
+
+        gatchaButtons.SetActive(true);
+
+        for (int i = 0; i < gatchaButtons.transform.childCount; i++)
+        {
+            int index = i;
+            Button btn = gatchaButtons.transform.GetChild(i).GetComponent<Button>();
+            if (btn != null)
+            {
+                btn.interactable = true;
+                btn.onClick.RemoveAllListeners();
+                btn.onClick.AddListener(() => OnGachaChildButtonClicked(index));
+            }
+        }
     }
 
     private IEnumerator DissolveFramesThenPlayAnimation()
@@ -91,7 +206,32 @@ public class GatchaManager : MonoBehaviour
         }
     }
 
+    // ============================================================
+    // MODIFIED: OnGachaChildButtonClicked() - Payment integration
+    // ============================================================
     private void OnGachaChildButtonClicked(int buttonIndex)
+    {
+        bool paymentsEnabled = PlayerPrefs.GetInt("payments_enabled", 0) == 1;
+
+        if (paymentsEnabled && PaymentManager.Instance != null)
+        {
+            // Get gacha price
+            string gachaPrice = PlayerPrefs.GetString("gacha_price", "500");
+
+            // Initiate payment with button index
+            PaymentManager.Instance.InitiateGachaPayment(boothID, gachaPrice, buttonIndex);
+        }
+        else
+        {
+            // No payment - proceed directly
+            ContinueGachaAfterPayment(buttonIndex);
+        }
+    }
+
+    // ============================================================
+    // NEW: ContinueGachaAfterPayment() - Called after payment success
+    // ============================================================
+    public void ContinueGachaAfterPayment(int buttonIndex)
     {
         foreach (Transform child in gatchaButtons.transform)
             child.GetComponent<Button>().interactable = false;
@@ -114,7 +254,7 @@ public class GatchaManager : MonoBehaviour
             CanvasGroup cg = otherBtn.GetComponent<CanvasGroup>();
             if (cg == null) cg = otherBtn.gameObject.AddComponent<CanvasGroup>();
             cg.alpha = 0f;
-            otherBtn.gameObject.SetActive(true); // ensure active
+            otherBtn.gameObject.SetActive(true);
         }
 
         // 3. Move clicked button to center
@@ -243,9 +383,6 @@ public class GatchaManager : MonoBehaviour
             }
         }
 
-        // -----------------------------
-        // 🔥 Reveal ALL remaining at once
-        // -----------------------------
         List<GameObject> revealedFrames = new List<GameObject>();
 
         foreach (int btnIndex in remainingIndices)
@@ -263,11 +400,9 @@ public class GatchaManager : MonoBehaviour
 
         yield return new WaitForSeconds(5f);
 
- 
         float fadeDuration = 1.2f;
         float t = 0f;
 
-        // CanvasGroup for buttons
         CanvasGroup btnCg = gatchaButtons.GetComponent<CanvasGroup>();
         if (btnCg == null) btnCg = gatchaButtons.AddComponent<CanvasGroup>();
 
@@ -276,7 +411,6 @@ public class GatchaManager : MonoBehaviour
             t += Time.deltaTime;
             float alpha = Mathf.Lerp(1f, 0f, t / fadeDuration);
 
-            // fade remaining frames
             foreach (GameObject f in revealedFrames)
             {
                 if (f != null)
@@ -287,19 +421,14 @@ public class GatchaManager : MonoBehaviour
                 }
             }
 
-            // fade the button backgrounds at the same time
             btnCg.alpha = alpha;
-
             yield return null;
         }
 
-        // Cleanup after fade
         foreach (GameObject f in revealedFrames)
             if (f != null) Destroy(f);
 
         gatchaButtons.SetActive(false);
-
-        // Continue to win panel
         StartCoroutine(ShowGatchaWinPanel(clickedResultFrame));
     }
 
@@ -307,8 +436,6 @@ public class GatchaManager : MonoBehaviour
     private IEnumerator InstantiateFrameOnButton(int buttonIndex, Frame frame, Vector3 targetScale, bool isResultFrame = false)
     {
         celebration.SetActive(true);
-
-        // wait for celebration then fade buttons
         StartCoroutine(WaitForCelebrationThenFadeButtons());
 
         Transform parentTransform;
@@ -321,7 +448,6 @@ public class GatchaManager : MonoBehaviour
                 yield break;
             }
             parentTransform = gatchaResult.transform.GetChild(buttonIndex);
-            // parentTransform = winFrameParent;
         }
         else
         {
@@ -367,7 +493,6 @@ public class GatchaManager : MonoBehaviour
             item.DisableSelection(true);
         }
 
-        // --- offline-aware thumbnail loading ---
         if (!string.IsNullOrEmpty(frame.thumb_path) && item != null && item.frameImg != null)
         {
             bool isOffline = Application.internetReachability == NetworkReachability.NotReachable;
@@ -375,18 +500,15 @@ public class GatchaManager : MonoBehaviour
 
             if (isOffline)
             {
-                // load from cache only
                 yield return FrameCacheManager.LoadCachedTexture(frame.thumb_path, tex => loadedTex = tex);
                 if (loadedTex == null)
                     Debug.LogWarning("[Gatcha] No cached thumbnail for offline frame: " + frame.thumb_path);
             }
             else
             {
-                // online: download & cache (DownloadAndCacheTexture returns cached copy if already present)
                 Debug.Log("[Gatcha] Downloading thumbnail: " + frame.thumb_path);
                 yield return FrameCacheManager.DownloadAndCacheTexture(frame.thumb_path, tex => loadedTex = tex);
 
-                // fallback to cached if download failed
                 if (loadedTex == null)
                     yield return FrameCacheManager.LoadCachedTexture(frame.thumb_path, tex => loadedTex = tex);
             }
@@ -401,9 +523,8 @@ public class GatchaManager : MonoBehaviour
 
         spawnedFrames.Add(obj);
 
-        // Zoom in slow if result, normal if remaining
         if (isResultFrame)
-            StartCoroutine(ZoomIn(obj.transform, 1.2f, new Vector3(1.3f, 1.3f, 0))); // slow zoom
+            StartCoroutine(ZoomIn(obj.transform, 1.2f, new Vector3(1.3f, 1.3f, 0)));
         else
             StartCoroutine(ZoomIn(obj.transform, 0.6f, targetScale));
 
@@ -443,20 +564,13 @@ public class GatchaManager : MonoBehaviour
         darkpanel1.SetActive(false);
     }
 
-    private IEnumerator FadeOutGatchaButtonsAndShowWinPanel(float duration)
-    {
-        yield return StartCoroutine(FadeOutGatchaButtonsAndDissolve(duration));
-        if (clickedResultFrame != null)
-            StartCoroutine(ShowGatchaWinPanel(clickedResultFrame));
-    }
-
     private IEnumerator ZoomIn(Transform target, float duration, Vector3 targetScale)
     {
         float t = 0f;
         Vector3 startScale = Vector3.zero;
         while (t < duration)
         {
-            if (target == null) yield break; // STOP coroutine if object is destroyed
+            if (target == null) yield break;
             t += Time.deltaTime;
             float scale = Mathf.SmoothStep(0f, 1f, t / duration);
             target.localScale = Vector3.Lerp(startScale, targetScale, scale);
@@ -498,19 +612,18 @@ public class GatchaManager : MonoBehaviour
     {
         gachaFrames = new List<Frame>(frames);
     }
+
     private IEnumerator ShowGatchaWinPanel(Frame resultFrame)
     {
         if (gatchaWin == null || winFrameParent == null)
             yield break;
 
-        // Activate panel
         gatchaWin.SetActive(true);
 
         CanvasGroup cg = gatchaWin.GetComponent<CanvasGroup>();
         if (cg == null) cg = gatchaWin.AddComponent<CanvasGroup>();
         cg.alpha = 0f;
 
-        // Slight fade-in for entire panel (0.25s)
         float t = 0f;
         float panelFadeTime = 0.25f;
 
@@ -522,11 +635,9 @@ public class GatchaManager : MonoBehaviour
         }
         cg.alpha = 1f;
 
-        // Clear old children
         foreach (Transform child in winFrameParent)
             Destroy(child.gameObject);
 
-        // Instantiate win frame
         GameObject obj = Instantiate(framePrefab, winFrameParent);
 
         RectTransform rect = obj.GetComponent<RectTransform>();
@@ -536,7 +647,6 @@ public class GatchaManager : MonoBehaviour
         obj.transform.localScale = new Vector3(2f, 2f, 2f);
         obj.transform.localRotation = Quaternion.identity;
 
-        // Setup frame content
         FrameItem item = obj.GetComponent<FrameItem>();
         if (item != null)
         {
@@ -545,7 +655,6 @@ public class GatchaManager : MonoBehaviour
             PhotoBoothFrameManager.Instance.SelectFrame(item);
         }
 
-        // Load thumbnail (unchanged)
         if (!string.IsNullOrEmpty(resultFrame.thumb_path) && item != null && item.frameImg != null)
         {
             bool isOffline = Application.internetReachability == NetworkReachability.NotReachable;
@@ -564,7 +673,6 @@ public class GatchaManager : MonoBehaviour
             }
         }
 
-        // Fade-in the frame itself (0.3s)
         CanvasGroup frameCg = obj.GetComponent<CanvasGroup>();
         if (frameCg == null) frameCg = obj.AddComponent<CanvasGroup>();
         frameCg.alpha = 0f;
@@ -580,10 +688,8 @@ public class GatchaManager : MonoBehaviour
         }
         frameCg.alpha = 1f;
 
-        // Wait SHORT time before shooting (1 second only)
         yield return new WaitForSeconds(1.0f);
 
-        // Fade-out + zoom-out before shooting panel
         float fadeOutTime = 0.7f;
         t = 0f;
         Vector3 startScale = obj.transform.localScale;
@@ -600,11 +706,7 @@ public class GatchaManager : MonoBehaviour
             yield return null;
         }
 
-        // Continue to shooting panel
         PhotoBoothFrameManager.Instance.OnDecideButtonClicked();
-        Debug.Log("shootstart");
+        Debug.Log("shoot start");
     }
-
-
-
 }
