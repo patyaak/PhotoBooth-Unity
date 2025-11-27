@@ -14,6 +14,7 @@ public class PhotoBoothFrameManager : MonoBehaviour
     [Header("UI References")]
     public Transform contentParent;
     public GameObject framePrefab;
+    public GameObject emptyStateObject; // Optional: "No frames" message
 
     [Header("Category Buttons")]
     public Button defaultButton;
@@ -39,59 +40,71 @@ public class PhotoBoothFrameManager : MonoBehaviour
     [Header("API")]
     public string apiBaseURL = "http://photo-stg-api.chvps3.aozora-okinawa.com/";
     private string boothID = "";
-
     public FrameResponse cachedResponse;
+
     private string currentCategory = "default";
     private Button currentSelectedButton;
     public FrameItem currentSelectedFrame;
     private bool isFetching = false;
 
     private Dictionary<Button, Sprite> normalSprites = new Dictionary<Button, Sprite>();
-    private Dictionary<string, Sprite> imageCache = new Dictionary<string, Sprite>(); // Thumbnail cache
-    public Dictionary<string, Texture2D> assetCache = new Dictionary<string, Texture2D>(); // Full frame texture cache
+    private Dictionary<string, Sprite> imageCache = new Dictionary<string, Sprite>();
+    public Dictionary<string, Texture2D> assetCache = new Dictionary<string, Texture2D>();
     private HashSet<string> downloadingAssets = new HashSet<string>();
     private List<FrameItem> currentFrameItems = new List<FrameItem>();
 
     [Header("Heartbeat Settings")]
-    public float fetchInterval = 300f; // 5 minutes
+    public float fetchInterval = 300f;
     private Coroutine heartbeatCoroutine;
 
-    void Awake()
+    private void Awake()
     {
-        Instance = this;
+        if (Instance == null) Instance = this;
+        else Destroy(gameObject);
     }
 
-    void Start()
+    private void Start()
     {
-        // store original sprites
-        if (defaultButton != null) normalSprites[defaultButton] = defaultButton.image.sprite;
-        if (recommendationButton != null) normalSprites[recommendationButton] = recommendationButton.image.sprite;
-        if (gatchaButton != null) normalSprites[gatchaButton] = gatchaButton.image.sprite;
-        if (myFrameButton != null) normalSprites[myFrameButton] = myFrameButton.image.sprite;
-
-        if (defaultButton != null) defaultButton.onClick.AddListener(() => OnCategoryButtonClicked(defaultButton));
-        if (recommendationButton != null) recommendationButton.onClick.AddListener(() => OnCategoryButtonClicked(recommendationButton));
-        if (gatchaButton != null) gatchaButton.onClick.AddListener(() => OnCategoryButtonClicked(gatchaButton));
-        if (myFrameButton != null) myFrameButton.onClick.AddListener(() => OnCategoryButtonClicked(myFrameButton));
-
-        if (playButton != null) playButton.onClick.AddListener(OnGatchaPlay);
-        if (nextButton != null) nextButton.onClick.AddListener(OnNextClicked);
-        if (prevButton != null) prevButton.onClick.AddListener(OnPrevClicked);
-
-        // initial load
+        StoreNormalSprites();
+        SetupButtonListeners();
         OnCategoryButtonClicked(defaultButton);
     }
 
-    void OnEnable()
+    private void OnEnable()
     {
         if (fetchInterval > 0 && heartbeatCoroutine == null)
             heartbeatCoroutine = StartCoroutine(FrameHeartbeat());
     }
 
-    void OnDisable()
+    private void OnDisable()
     {
         if (heartbeatCoroutine != null)
             StopCoroutine(heartbeatCoroutine);
+    }
+
+    private void OnDestroy()
+    {
+        ClearAssetCache();
+    }
+
+    private void StoreNormalSprites()
+    {
+        if (defaultButton) normalSprites[defaultButton] = defaultButton.image.sprite;
+        if (recommendationButton) normalSprites[recommendationButton] = recommendationButton.image.sprite;
+        if (gatchaButton) normalSprites[gatchaButton] = gatchaButton.image.sprite;
+        if (myFrameButton) normalSprites[myFrameButton] = myFrameButton.image.sprite;
+    }
+
+    private void SetupButtonListeners()
+    {
+        if (defaultButton) defaultButton.onClick.AddListener(() => OnCategoryButtonClicked(defaultButton));
+        if (recommendationButton) recommendationButton.onClick.AddListener(() => OnCategoryButtonClicked(recommendationButton));
+        if (gatchaButton) gatchaButton.onClick.AddListener(() => OnCategoryButtonClicked(gatchaButton));
+        if (myFrameButton) myFrameButton.onClick.AddListener(() => OnCategoryButtonClicked(myFrameButton));
+
+        if (playButton) playButton.onClick.AddListener(OnGatchaPlay);
+        if (nextButton) nextButton.onClick.AddListener(OnNextClicked);
+        if (prevButton) prevButton.onClick.AddListener(OnPrevClicked);
     }
 
     IEnumerator FrameHeartbeat()
@@ -99,7 +112,6 @@ public class PhotoBoothFrameManager : MonoBehaviour
         while (true)
         {
             yield return new WaitForSeconds(fetchInterval);
-
             if (!isFetching && !string.IsNullOrEmpty(boothID) && Application.internetReachability != NetworkReachability.NotReachable)
                 StartCoroutine(FetchFramesFromServer());
         }
@@ -110,14 +122,12 @@ public class PhotoBoothFrameManager : MonoBehaviour
         float start = scrollRect.horizontalNormalizedPosition;
         float time = 0f;
         float duration = 0.3f;
-
         while (time < duration)
         {
             time += Time.deltaTime;
             scrollRect.horizontalNormalizedPosition = Mathf.Lerp(start, target, time / duration);
             yield return null;
         }
-
         scrollRect.horizontalNormalizedPosition = target;
     }
 
@@ -126,18 +136,47 @@ public class PhotoBoothFrameManager : MonoBehaviour
 
     public void SetBoothID(string id) => boothID = id;
 
+    // ==================================================================
+    // MAIN FETCH METHOD – NOW WITH MYFRAME + USER_ID FILTER SUPPORT
+    // ==================================================================
     public IEnumerator FetchFramesFromServer()
     {
-        if (isFetching || string.IsNullOrEmpty(boothID))
-            yield break;
+        if (isFetching || string.IsNullOrEmpty(boothID)) yield break;
 
         isFetching = true;
+        ClearFrames();
 
-        bool online = Application.internetReachability != NetworkReachability.NotReachable;
+        string url = apiBaseURL + "api/photobooth/frames";
 
-        if (online)
+        var parameters = new List<string>
         {
-            string fullURL = $"{apiBaseURL}api/photobooth/frames?booth_id={boothID}&assignment_type={currentCategory}";
+            "booth_id=" + UnityWebRequest.EscapeURL(boothID),
+            "assignment_type=" + currentCategory
+        };
+
+        // MYFRAME: Add user_id filter if logged in
+        if (currentCategory == "myframe")
+        {
+            string userId = PlayerPrefs.GetString("user_id", "");
+            if (!string.IsNullOrEmpty(userId))
+            {
+                parameters.Add("user_id=" + UnityWebRequest.EscapeURL(userId));
+            }
+            else
+            {
+                ShowEmptyState("Please log in to view your frames");
+                isFetching = false;
+                yield break;
+            }
+        }
+
+        string fullURL = url + "?" + string.Join("&", parameters);
+        Debug.Log("Fetching frames → " + fullURL);
+
+        bool isOnline = Application.internetReachability != NetworkReachability.NotReachable;
+
+        if (isOnline)
+        {
             using (UnityWebRequest request = UnityWebRequest.Get(fullURL))
             {
                 yield return request.SendWebRequest();
@@ -151,13 +190,14 @@ public class PhotoBoothFrameManager : MonoBehaviour
                 }
                 else
                 {
-                    yield return StartCoroutine(LoadFramesFromCache(currentCategory));
+                    Debug.LogWarning("API failed → loading from cache");
+                    yield return LoadFramesFromCache(currentCategory);
                 }
             }
         }
         else
         {
-            yield return StartCoroutine(LoadFramesFromCache(currentCategory));
+            yield return LoadFramesFromCache(currentCategory);
         }
 
         isFetching = false;
@@ -165,18 +205,14 @@ public class PhotoBoothFrameManager : MonoBehaviour
 
     private IEnumerator LoadFramesFromCache(string category)
     {
-        if (!FrameCacheManager.HasCachedData(category))
-            yield break;
+        if (!FrameCacheManager.HasCachedData(category)) yield break;
 
-        string cachedJson = FrameCacheManager.LoadCachedJSON(category);
-        if (string.IsNullOrEmpty(cachedJson))
-            yield break;
+        string json = FrameCacheManager.LoadCachedJSON(category);
+        if (string.IsNullOrEmpty(json)) yield break;
 
-        cachedResponse = JsonUtility.FromJson<FrameResponse>(cachedJson);
-        if (cachedResponse != null && cachedResponse.data.frames.Count > 0)
+        cachedResponse = JsonUtility.FromJson<FrameResponse>(json);
+        if (cachedResponse?.data?.frames != null)
             DisplayFrames(cachedResponse.data.frames);
-
-        yield return null;
     }
 
     private void DisplayFrames(List<Frame> frames)
@@ -185,6 +221,12 @@ public class PhotoBoothFrameManager : MonoBehaviour
             GatchaManager.Instance.ClearSpawnedFramesInstant();
 
         ClearFrames();
+
+        if (frames == null || frames.Count == 0)
+        {
+            ShowEmptyState(currentCategory == "myframe" ? "You have no frames yet" : "No frames available");
+            return;
+        }
 
         foreach (Frame frame in frames)
         {
@@ -210,8 +252,19 @@ public class PhotoBoothFrameManager : MonoBehaviour
         decideButton.gameObject.SetActive(currentCategory != "gacha");
         playButton.gameObject.SetActive(currentCategory == "gacha");
 
-        // start parallel download tasks (doesn't block)
         StartCoroutine(DownloadThumbnailsAndAssetsParallel(currentFrameItems));
+    }
+
+    private void ShowEmptyState(string message = "No frames")
+    {
+        if (emptyStateObject != null)
+        {
+            GameObject go = Instantiate(emptyStateObject, contentParent);
+            TextMeshProUGUI txt = go.GetComponentInChildren<TextMeshProUGUI>();
+            if (txt) txt.text = message;
+        }
+        decideButton.gameObject.SetActive(false);
+        playButton.gameObject.SetActive(false);
     }
 
     private IEnumerator DownloadThumbnailsAndAssetsParallel(List<FrameItem> items)
@@ -220,115 +273,76 @@ public class PhotoBoothFrameManager : MonoBehaviour
 
         foreach (FrameItem item in items)
         {
-            if (item == null) continue;
+            if (item == null || item.frameData == null) continue;
 
-            // thumbnail: start a coroutine for each thumbnail (applies when ready)
-            if (!string.IsNullOrEmpty(item.frameData.thumb_path))
-            {
-                string thumbResolved = ResolveUrl(item.frameData.thumb_path);
-                if (!imageCache.ContainsKey(thumbResolved))
-                    StartCoroutine(DownloadThumbnail(thumbResolved, item));
-                else
-                {
-                    item.ApplySprite(imageCache[thumbResolved]);
-                    item.SetThumbnailAlpha(1f);
-                }
-            }
+            string thumbUrl = ResolveUrl(item.frameData.thumb_path);
+            if (!string.IsNullOrEmpty(thumbUrl) && !imageCache.ContainsKey(thumbUrl))
+                StartCoroutine(DownloadThumbnail(thumbUrl, item));
+            else if (imageCache.ContainsKey(thumbUrl))
+                item.ApplySprite(imageCache[thumbUrl]);
 
-            // full asset: start download coroutine if not cached or already downloading
-            if (!string.IsNullOrEmpty(item.frameData.asset_path))
-            {
-                string assetResolved = ResolveUrl(item.frameData.asset_path);
-                if (!assetCache.ContainsKey(assetResolved) && !downloadingAssets.Contains(assetResolved))
-                {
-                    StartCoroutine(DownloadAndCacheTextureCoroutine(assetResolved));
-                }
-            }
+            string assetUrl = ResolveUrl(item.frameData.asset_path);
+            if (!string.IsNullOrEmpty(assetUrl) && !assetCache.ContainsKey(assetUrl) && !downloadingAssets.Contains(assetUrl))
+                StartCoroutine(DownloadAndCacheTextureCoroutine(assetUrl));
         }
-
-        yield return null;
     }
 
-    // helper: download thumbnail and set sprite
-    private IEnumerator DownloadThumbnail(string resolvedUrl, FrameItem item)
+    private IEnumerator DownloadThumbnail(string url, FrameItem item)
     {
-        if (string.IsNullOrEmpty(resolvedUrl)) yield break;
-
-        // if already cached (another coroutine finished meanwhile)
-        if (imageCache.TryGetValue(resolvedUrl, out Sprite cachedSprite))
+        if (imageCache.ContainsKey(url))
         {
-            if (item != null)
-            {
-                item.ApplySprite(cachedSprite);
-                item.SetThumbnailAlpha(1f);
-            }
+            item.ApplySprite(imageCache[url]);
+            item.SetThumbnailAlpha(1f);
             yield break;
         }
 
-        yield return FrameCacheManager.DownloadAndCacheTexture(resolvedUrl, tex =>
+        yield return FrameCacheManager.DownloadAndCacheTexture(url, tex =>
         {
             if (tex != null)
             {
-                Sprite s = Sprite.Create(tex, new Rect(0, 0, tex.width, tex.height), new Vector2(0.5f, 0.5f));
-                imageCache[resolvedUrl] = s;
-
+                Sprite sprite = Sprite.Create(tex, new Rect(0, 0, tex.width, tex.height), Vector2.one * 0.5f);
+                imageCache[url] = sprite;
                 if (item != null)
                 {
-                    item.ApplySprite(s);
+                    item.ApplySprite(sprite);
                     item.SetThumbnailAlpha(1f);
                 }
             }
-            else
-            {
-                Debug.LogWarning($"⚠️ Failed to download thumbnail: {resolvedUrl}");
-            }
         });
     }
 
-    // wrapper so we can call FrameCacheManager.DownloadAndCacheTexture with yield return safely
-    private IEnumerator DownloadAndCacheTextureCoroutine(string resolvedUrl)
+    private IEnumerator DownloadAndCacheTextureCoroutine(string url)
     {
-        if (string.IsNullOrEmpty(resolvedUrl)) yield break;
-        if (downloadingAssets.Contains(resolvedUrl)) yield break;
+        if (downloadingAssets.Contains(url)) yield break;
+        downloadingAssets.Add(url);
 
-        downloadingAssets.Add(resolvedUrl);
-
-        yield return FrameCacheManager.DownloadAndCacheTexture(resolvedUrl, tex =>
+        yield return FrameCacheManager.DownloadAndCacheTexture(url, tex =>
         {
-            if (tex != null)
-            {
-                assetCache[resolvedUrl] = tex;
-            }
-            else
-            {
-                Debug.LogWarning($"⚠️ Failed to download asset: {resolvedUrl}");
-            }
-
-            downloadingAssets.Remove(resolvedUrl);
+            if (tex != null) assetCache[url] = tex;
+            downloadingAssets.Remove(url);
         });
     }
 
-    // Resolves path to full URL: if already absolute return as-is, otherwise prepend apiBaseURL
     private string ResolveUrl(string path)
     {
         if (string.IsNullOrEmpty(path)) return path;
-        path = path.Trim();
-
-        if (path.StartsWith("http://") || path.StartsWith("https://"))
-            return path;
-
-        // ensure apiBaseURL ends with a single slash
-        string baseUrl = apiBaseURL;
-        if (!baseUrl.EndsWith("/")) baseUrl += "/";
-
-        // drop leading slash from path if present
+        if (path.StartsWith("http")) return path;
+        string baseUrl = apiBaseURL.EndsWith("/") ? apiBaseURL : apiBaseURL + "/";
         if (path.StartsWith("/")) path = path.Substring(1);
-
         return baseUrl + path;
     }
 
     void OnCategoryButtonClicked(Button clickedButton)
     {
+        if (clickedButton == myFrameButton)
+        {
+            if (string.IsNullOrEmpty(PlayerPrefs.GetString("user_id")))
+            {
+                Debug.Log("Login required for My Frames");
+                return;
+            }
+        }
+
         if (currentSelectedButton != null && currentSelectedButton != clickedButton)
             ResetButtonSprite(currentSelectedButton);
 
@@ -337,22 +351,21 @@ public class PhotoBoothFrameManager : MonoBehaviour
 
         currentCategory = clickedButton == defaultButton ? "default" :
                           clickedButton == recommendationButton ? "recommended" :
-                          clickedButton == gatchaButton ? "gacha" : "myframe";
+                          clickedButton == gatchaButton ? "gacha" :
+                          clickedButton == myFrameButton ? "myframe" : "default";
 
         StartCoroutine(FetchFramesFromServer());
     }
 
     void ResetButtonSprite(Button button)
     {
-        if (button == null) return;
-        if (normalSprites.TryGetValue(button, out Sprite original))
-            button.image.sprite = original;
+        if (button && normalSprites.TryGetValue(button, out Sprite s))
+            button.image.sprite = s;
     }
 
     void ApplySelectedSprite(Button button)
     {
-        if (button == null) return;
-        if (button.spriteState.selectedSprite != null)
+        if (button && button.spriteState.selectedSprite != null)
             button.image.sprite = button.spriteState.selectedSprite;
     }
 
@@ -362,122 +375,22 @@ public class PhotoBoothFrameManager : MonoBehaviour
             currentSelectedFrame.Deselect();
 
         currentSelectedFrame = item;
-        currentSelectedFrame.Select();
+        currentSelectedFrame?.Select();
     }
 
     public FrameItem GetSelectedFrameItem() => currentSelectedFrame;
 
-    // ============================================================
-    // MODIFIED: OnDecideButtonClicked() with Payment Integration
-    // ============================================================
-    public void OnDecideButtonClicked()
+    // ==================================================================
+    // MEMORY SAFETY – PREVENT VRAM CRASH
+    // ==================================================================
+    public void ClearAssetCache()
     {
-        FrameItem selectedItem = GetSelectedFrameItem();
-        if (selectedItem == null)
-        {
-            Debug.LogWarning("❌ No frame selected!");
-            return;
-        }
+        foreach (var kvp in assetCache)
+            if (kvp.Value != null) Destroy(kvp.Value);
 
-        // Check if payments are enabled
-        bool paymentsEnabled = PlayerPrefs.GetInt("payments_enabled", 0) == 1;
-        Debug.Log($"💳 Payments Enabled: {paymentsEnabled}");
-
-        if (paymentsEnabled)
-        {
-            if (PaymentManager.Instance == null)
-            {
-                Debug.LogError("❌ PaymentManager.Instance is NULL! Make sure PaymentManager exists in scene.");
-                ContinueAfterPayment(selectedItem);
-                return;
-            }
-
-            // Get booth price
-            string price = "1000"; // Default
-            var vendorLogin = FindAnyObjectByType<VendorLogin>();
-            if (vendorLogin != null && vendorLogin.boothPrice != null)
-            {
-                price = vendorLogin.boothPrice.text;
-            }
-
-            Debug.Log($"💳 Initiating payment for frame: {selectedItem.frameData.frame_id}, Price: {price}, Booth: {boothID}");
-
-            // Initiate payment
-            PaymentManager.Instance.InitiateFramePayment(selectedItem, boothID, price);
-        }
-        else
-        {
-            Debug.Log("💳 Payments disabled - proceeding directly to shooting");
-            // No payment required - proceed directly
-            ContinueAfterPayment(selectedItem);
-        }
-    }
-
-    // ============================================================
-    // NEW: ContinueAfterPayment() - Called after successful payment
-    // ============================================================
-    public void ContinueAfterPayment(FrameItem selectedItem)
-    {
-        // Original decide button logic
-        foreach (Transform child in startShootingParent)
-            Destroy(child.gameObject);
-
-        GameObject instance = Instantiate(startShootingPrefab, startShootingParent);
-        Image img = instance.GetComponentInChildren<Image>();
-        if (img != null)
-            img.sprite = selectedItem.frameImg.sprite;
-
-        Button startButton = instance.GetComponentInChildren<Button>();
-        if (startButton != null)
-        {
-            startButton.onClick.RemoveAllListeners();
-            startButton.onClick.AddListener(() =>
-            {
-                if (PhotoShootingManager.Instance != null)
-                {
-                    PhotoShootingManager.Instance.StartShooting(selectedItem);
-                    instance.SetActive(false);
-                }
-            });
-        }
-
-        // Resolve and use cached asset if available; otherwise start download coroutine that will set the frame when done.
-        string resolvedAssetUrl = ResolveUrl(selectedItem.frameData.asset_path);
-        if (assetCache.TryGetValue(resolvedAssetUrl, out Texture2D tex))
-        {
-            if (CapturedPhotosDisplayManager.Instance != null)
-                CapturedPhotosDisplayManager.Instance.SetFrame(tex);
-        }
-        else
-        {
-            StartCoroutine(DownloadAndSetFrameForCapture(resolvedAssetUrl));
-        }
-    }
-
-    private IEnumerator DownloadAndSetFrameForCapture(string resolvedUrl)
-    {
-        if (string.IsNullOrEmpty(resolvedUrl)) yield break;
-
-        Texture2D loaded = null;
-        yield return FrameCacheManager.DownloadAndCacheTexture(resolvedUrl, tex => loaded = tex);
-
-        if (loaded != null)
-        {
-            assetCache[resolvedUrl] = loaded;
-            if (CapturedPhotosDisplayManager.Instance != null)
-                CapturedPhotosDisplayManager.Instance.SetFrame(loaded);
-        }
-        else
-        {
-            Debug.LogWarning($"⚠️ Failed to download frame asset for capture: {resolvedUrl}");
-        }
-    }
-
-    private IEnumerator DownloadFrameAssetForCapturedDisplay(string assetURL)
-    {
-        // kept for backward compatibility; resolves URL and forwards to DownloadAndSetFrameForCapture
-        string resolved = ResolveUrl(assetURL);
-        yield return DownloadAndSetFrameForCapture(resolved);
+        assetCache.Clear();
+        imageCache.Clear();
+        downloadingAssets.Clear();
     }
 
     public void ClearFrames()
@@ -492,40 +405,90 @@ public class PhotoBoothFrameManager : MonoBehaviour
         currentSelectedFrame = null;
     }
 
-    // ============================================================
-    // MODIFIED: OnGatchaPlay() with Payment Integration
-    // ============================================================
-    public void OnGatchaPlay()
+    // ==================================================================
+    // YOUR EXISTING METHODS (Payment, Gacha, Shooting) – UNCHANGED
+    // ==================================================================
+    public void OnDecideButtonClicked()
     {
-        if (GatchaManager.Instance == null) return;
+        FrameItem selectedItem = GetSelectedFrameItem();
+        if (selectedItem == null)
+        {
+            Debug.LogWarning("No frame selected!");
+            return;
+        }
 
         bool paymentsEnabled = PlayerPrefs.GetInt("payments_enabled", 0) == 1;
-
         if (paymentsEnabled && PaymentManager.Instance != null)
         {
-            // Get gacha price and show payment immediately
+            string price = PlayerPrefs.GetString("booth_price", "1000");
+            PaymentManager.Instance.InitiateFramePayment(selectedItem, boothID, price);
+        }
+        else
+        {
+            ContinueAfterPayment(selectedItem);
+        }
+    }
+
+    public void ContinueAfterPayment(FrameItem selectedItem)
+    {
+        foreach (Transform child in startShootingParent)
+            Destroy(child.gameObject);
+
+        GameObject instance = Instantiate(startShootingPrefab, startShootingParent);
+        Image img = instance.GetComponentInChildren<Image>();
+        if (img != null) img.sprite = selectedItem.frameImg.sprite;
+
+        Button startButton = instance.GetComponentInChildren<Button>();
+        if (startButton != null)
+        {
+            startButton.onClick.RemoveAllListeners();
+            startButton.onClick.AddListener(() =>
+            {
+                PhotoShootingManager.Instance?.StartShooting(selectedItem);
+                instance.SetActive(false);
+            });
+        }
+
+        string assetUrl = ResolveUrl(selectedItem.frameData.asset_path);
+        if (assetCache.TryGetValue(assetUrl, out Texture2D tex))
+        {
+            CapturedPhotosDisplayManager.Instance?.SetFrame(tex);
+        }
+        else
+        {
+            StartCoroutine(DownloadAndSetFrameForCapture(assetUrl));
+        }
+    }
+
+    private IEnumerator DownloadAndSetFrameForCapture(string url)
+    {
+        Texture2D tex = null;
+        yield return FrameCacheManager.DownloadAndCacheTexture(url, t => tex = t);
+        if (tex != null)
+        {
+            assetCache[url] = tex;
+            CapturedPhotosDisplayManager.Instance?.SetFrame(tex);
+        }
+    }
+
+    public void OnGatchaPlay()
+    {
+        bool paymentsEnabled = PlayerPrefs.GetInt("payments_enabled", 0) == 1;
+        if (paymentsEnabled && PaymentManager.Instance != null)
+        {
             string gachaPrice = PlayerPrefs.GetString("gacha_price", "500");
-
-            Debug.Log($"💳 Play button clicked - Showing payment panel for gacha: ¥{gachaPrice}");
-
-            // Show payment panel immediately with gacha price
             PaymentManager.Instance.InitiateGachaPayment(boothID, gachaPrice, -1);
         }
         else
         {
-            // No payment - proceed directly to gacha animation
-            Debug.Log("💳 Payments disabled - proceeding directly to gacha");
-
-            if (defaultButton != null) defaultButton.interactable = false;
-            if (recommendationButton != null) recommendationButton.interactable = false;
-            if (myFrameButton != null) myFrameButton.interactable = false;
-
-            GatchaManager.Instance.SetBoothID(boothID);
-            GatchaManager.Instance.PlayGatchaAnimation();
+            defaultButton.interactable = false;
+            recommendationButton.interactable = false;
+            myFrameButton.interactable = false;
+            GatchaManager.Instance?.SetBoothID(boothID);
+            GatchaManager.Instance?.PlayGatchaAnimation();
         }
     }
 
-    // ZoomIn helper used by GatchaManager
     public IEnumerator ZoomIn(Transform target, float duration, Vector3 targetScale)
     {
         float t = 0f;

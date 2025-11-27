@@ -40,6 +40,7 @@ public class GatchaManager : MonoBehaviour
         else Destroy(gameObject);
     }
 
+
     public void SetBoothID(string id) => boothID = id;
 
     // ============================================================
@@ -524,7 +525,7 @@ public class GatchaManager : MonoBehaviour
         spawnedFrames.Add(obj);
 
         if (isResultFrame)
-            StartCoroutine(ZoomIn(obj.transform, 1.2f, new Vector3(1.3f, 1.3f, 0)));
+            StartCoroutine(ZoomIn(obj.transform, 0.7f, new Vector3(1.3f, 1.3f, 0)));
         else
             StartCoroutine(ZoomIn(obj.transform, 0.6f, targetScale));
 

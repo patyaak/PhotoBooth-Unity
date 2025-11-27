@@ -106,6 +106,7 @@ class FrameItem : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler,IPoin
     public void ApplySprite(Sprite s)
     {
         if (frameImg != null) frameImg.sprite = s;
+        frameImg.color = new Color(1f, 1f, 1f, 1f);
     }
 
     public void Select()
@@ -160,7 +161,7 @@ class FrameItem : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler,IPoin
         if (disable)
         {
             if (frameImg != null)
-                frameImg.color = new Color(1, 1, 1, 0.5f);  // dimmed
+                frameImg.color = new Color(1, 1, 1, 1f);  // dimmed
         }
         else
         {

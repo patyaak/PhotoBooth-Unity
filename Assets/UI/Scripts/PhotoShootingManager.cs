@@ -19,12 +19,16 @@ public class PhotoShootingManager : MonoBehaviour
     public TMP_Text timerText;
 
     [Header("Camera & Preview")]
-    public RawImage cameraPreview;      // LIVE PREVIEW (RAWIMAGE)
-    public Image capturePreview;         // CAPTURED IMAGE (IMAGE)
+    public RawImage cameraPreview;
+    public Image capturePreview;
     public Button reshotButton;
 
     [Header("Frame Display")]
     public CapturedPhotosDisplayManager displayManager;
+
+    [Header("Printing")]
+    public Button printButton;
+    public bool autoPrintAfterCapture = false;
 
     public enum AspectRatio { Ratio16x9, Ratio1x1, Ratio4x5 }
     public AspectRatio selectedAspect = AspectRatio.Ratio1x1;
@@ -39,6 +43,9 @@ public class PhotoShootingManager : MonoBehaviour
     [Header("UI References")]
     public GameObject loadingPanel;
 
+    private Texture2D finalComposedImageForPrint;
+    private GameObject instantiatedFrameObject;
+
     private void Awake()
     {
         Instance = this;
@@ -47,10 +54,8 @@ public class PhotoShootingManager : MonoBehaviour
 
     private void Update()
     {
-        // LIVE PREVIEW FIX — always crop RawImage preview based on current placeholder
         if (webCamTexture != null && webCamTexture.width > 100)
         {
-            // Get current placeholder dimensions
             float phWidth = 800f;
             float phHeight = 800f;
 
@@ -114,7 +119,6 @@ public class PhotoShootingManager : MonoBehaviour
         capturePreview.gameObject.SetActive(false);
         cameraPreview.gameObject.SetActive(true);
 
-        // Adjust camera preview size to match placeholder aspect ratio
         if (currentShotIndex < placeholders.Count)
         {
             var ph = placeholders[currentShotIndex];
@@ -122,7 +126,6 @@ public class PhotoShootingManager : MonoBehaviour
             float phHeight = float.Parse(ph.height);
             float placeholderAspect = phWidth / phHeight;
 
-            // Resize camera preview to match placeholder aspect
             SetCameraPreviewAspect(placeholderAspect);
         }
 
@@ -150,7 +153,6 @@ public class PhotoShootingManager : MonoBehaviour
         tex.SetPixels(webCamTexture.GetPixels());
         tex.Apply();
 
-        // Get current placeholder dimensions
         float phWidth = 800f;
         float phHeight = 800f;
 
@@ -161,9 +163,7 @@ public class PhotoShootingManager : MonoBehaviour
             phHeight = float.Parse(ph.height);
         }
 
-        // Center-crop according to placeholder
         finalCroppedTex = GetCroppedTexture(tex, phWidth, phHeight);
-
         capturedPhotos.Add(finalCroppedTex);
 
         capturePreview.sprite = Sprite.Create(finalCroppedTex, new Rect(0, 0, finalCroppedTex.width, finalCroppedTex.height), new Vector2(0.5f, 0.5f));
@@ -181,7 +181,6 @@ public class PhotoShootingManager : MonoBehaviour
     {
         if (clickedImage == null) return;
 
-        // Get placeholder dimensions for accurate preview
         float phWidth = 800f;
         float phHeight = 800f;
 
@@ -256,6 +255,9 @@ public class PhotoShootingManager : MonoBehaviour
         StartCoroutine(StartCountdownAndCapture());
     }
 
+    // ============================================================
+    // MODIFIED: ApplyPhotosWithFrame - Now with Printing Integration
+    // ============================================================
     private IEnumerator ApplyPhotosWithFrame()
     {
         if (loadingPanel != null)
@@ -279,6 +281,7 @@ public class PhotoShootingManager : MonoBehaviour
 
         GameObject frameObj = Instantiate(displayManager.frameDisplayPrefab, frameParent);
         frameObj.SetActive(true);
+        instantiatedFrameObject = frameObj; // Store reference for printing
 
         Texture2D frameTex = null;
         string frameURL = currentFrameItem.frameData.asset_path;
@@ -337,21 +340,170 @@ public class PhotoShootingManager : MonoBehaviour
 
         if (loadingPanel != null)
             loadingPanel.SetActive(false);
+
+        // ============================================================
+        // NEW: PRINTING INTEGRATION
+        // ============================================================
+
+        // Wait for UI to fully render
+        yield return new WaitForEndOfFrame();
+        yield return new WaitForEndOfFrame(); // Extra frame for safety
+
+        // Capture the final composed frame as texture
+        finalComposedImageForPrint = CaptureFrameAsTexture(frameObj.transform);
+
+        if (finalComposedImageForPrint != null)
+        {
+            Debug.Log($"✅ Final composed image captured for printing: {finalComposedImageForPrint.width}x{finalComposedImageForPrint.height}");
+
+            // Auto-print or show print button
+            if (autoPrintAfterCapture && PrintingManager.Instance != null)
+            {
+                // Auto print immediately
+                PrintingManager.Instance.PrintFinalImage(finalComposedImageForPrint);
+            }
+            else if (printButton != null && PrintingManager.Instance != null)
+            {
+                // Show print button
+                printButton.gameObject.SetActive(true);
+                printButton.onClick.RemoveAllListeners();
+                printButton.onClick.AddListener(OnPrintButtonClicked);
+
+                Debug.Log("🖨️ Print button activated");
+            }
+        }
+        else
+        {
+            Debug.LogError("❌ Failed to capture final image for printing!");
+        }
+    }
+
+    // ============================================================
+    // NEW: Print Button Handler
+    // ============================================================
+    private void OnPrintButtonClicked()
+    {
+        if (finalComposedImageForPrint == null)
+        {
+            Debug.LogError("❌ No image to print!");
+            return;
+        }
+
+        if (PrintingManager.Instance == null)
+        {
+            Debug.LogError("❌ PrintingManager not found in scene!");
+            return;
+        }
+
+        Debug.Log("🖨️ Print button clicked - sending to PrintingManager");
+
+        // Hide print button after clicking
+        if (printButton != null)
+            printButton.gameObject.SetActive(false);
+
+        // Send to PrintingManager for printing
+        PrintingManager.Instance.PrintFinalImage(finalComposedImageForPrint);
+    }
+
+    // ============================================================
+    // NEW: Capture Frame as Texture for Printing
+    // ============================================================
+    private Texture2D CaptureFrameAsTexture(Transform frameTransform)
+    {
+        if (frameTransform == null)
+        {
+            Debug.LogError("❌ Frame transform is null!");
+            return null;
+        }
+
+        RectTransform rectTransform = frameTransform.GetComponent<RectTransform>();
+        if (rectTransform == null)
+        {
+            Debug.LogError("❌ RectTransform not found!");
+            return null;
+        }
+
+        // Get frame dimensions
+        float frameWidth = rectTransform.rect.width;
+        float frameHeight = rectTransform.rect.height;
+
+        Debug.Log($"📸 Capturing frame: {frameWidth}x{frameHeight}");
+
+        // Create render texture with higher resolution for printing
+        int renderWidth = Mathf.RoundToInt(frameWidth);
+        int renderHeight = Mathf.RoundToInt(frameHeight);
+
+        // Ensure minimum print quality
+        if (renderWidth < 1200)
+        {
+            float scale = 1200f / renderWidth;
+            renderWidth = 1200;
+            renderHeight = Mathf.RoundToInt(renderHeight * scale);
+        }
+
+        RenderTexture renderTexture = new RenderTexture(renderWidth, renderHeight, 24);
+
+        // Create temporary camera
+        GameObject tempCamObj = new GameObject("TempPrintCamera");
+        Camera printCamera = tempCamObj.AddComponent<Camera>();
+
+        printCamera.targetTexture = renderTexture;
+        printCamera.orthographic = true;
+        printCamera.clearFlags = CameraClearFlags.SolidColor;
+        printCamera.backgroundColor = Color.white;
+
+        // Calculate orthographic size to fit the frame
+        printCamera.orthographicSize = frameHeight / 2f;
+
+        // Position camera in front of frame
+        Vector3 frameWorldPos = frameTransform.position;
+        tempCamObj.transform.position = new Vector3(frameWorldPos.x, frameWorldPos.y, frameWorldPos.z - 100);
+        tempCamObj.transform.LookAt(frameTransform);
+
+        // Set camera to only render UI layer
+        printCamera.cullingMask = 1 << LayerMask.NameToLayer("UI");
+
+        // Render
+        printCamera.Render();
+
+        // Read pixels
+        RenderTexture.active = renderTexture;
+        Texture2D capturedTexture = new Texture2D(renderWidth, renderHeight, TextureFormat.RGB24, false);
+        capturedTexture.ReadPixels(new Rect(0, 0, renderWidth, renderHeight), 0, 0);
+        capturedTexture.Apply();
+
+        // Cleanup
+        printCamera.targetTexture = null;
+        RenderTexture.active = null;
+        Destroy(renderTexture);
+        Destroy(tempCamObj);
+
+        Debug.Log($"✅ Frame captured for printing: {capturedTexture.width}x{capturedTexture.height}");
+        return capturedTexture;
+    }
+
+    // ============================================================
+    // ALTERNATIVE: Simple Screenshot Method (Backup)
+    // ============================================================
+    private Texture2D CaptureFrameAsTexture_Screenshot()
+    {
+        // Use Unity's built-in screenshot (simpler but captures whole screen)
+        Texture2D screenshot = ScreenCapture.CaptureScreenshotAsTexture();
+
+        // Optionally crop to just the frame area
+        // For now, just return the screenshot
+        return screenshot;
     }
 
     // -------------------------------
     // CROPPING HELPERS
     // -------------------------------
 
-    /// <summary>
-    /// Set camera preview aspect ratio to match placeholder
-    /// </summary>
     private void SetCameraPreviewAspect(float targetAspect)
     {
         RectTransform camRect = cameraPreview.rectTransform;
         RectTransform capRect = capturePreview.rectTransform;
 
-        // Use consistent base size
         float baseSize = 800f;
         float width, height;
 
@@ -361,18 +513,15 @@ public class PhotoShootingManager : MonoBehaviour
             float phWidth = float.Parse(ph.width);
             float phHeight = float.Parse(ph.height);
 
-            // Match placeholder aspect ratio exactly
             float aspect = phWidth / phHeight;
 
             if (aspect >= 1f)
             {
-                // Landscape or square - base on width
                 width = baseSize;
                 height = baseSize / aspect;
             }
             else
             {
-                // Portrait - base on height
                 height = baseSize;
                 width = baseSize * aspect;
             }
@@ -381,44 +530,32 @@ public class PhotoShootingManager : MonoBehaviour
         }
         else
         {
-            // Default square
             width = height = baseSize;
         }
 
         camRect.sizeDelta = new Vector2(width, height);
         capRect.sizeDelta = new Vector2(width, height);
-
-        Debug.Log($"📷 Camera preview resized to {width}x{height}");
     }
 
-    /// <summary>
-    /// Apply center-crop UV rect to RawImage based on placeholder dimensions
-    /// </summary>
     private void ApplyCenterCropToRawImageWithPlaceholder(RawImage raw, int texW, int texH, float phWidth, float phHeight)
     {
         if (raw == null || texW <= 0 || texH <= 0) return;
 
-        // Calculate target aspect from placeholder
         float targetAspect = phWidth / phHeight;
-
-        // Calculate webcam texture aspect
         float texAspect = (float)texW / texH;
 
         if (texAspect > targetAspect)
         {
-            // Webcam is wider than placeholder - crop sides
             float scale = targetAspect / texAspect;
             raw.uvRect = new Rect((1f - scale) / 2f, 0f, scale, 1f);
         }
         else
         {
-            // Webcam is taller than placeholder - crop top/bottom
             float scale = texAspect / targetAspect;
             raw.uvRect = new Rect(0f, (1f - scale) / 2f, 1f, scale);
         }
     }
 
-    // ★ OLD METHOD - KEPT FOR COMPATIBILITY
     private void ApplyCenterCropToRawImage(RawImage raw, int texW, int texH)
     {
         if (raw == null || texW <= 0 || texH <= 0) return;
@@ -439,7 +576,6 @@ public class PhotoShootingManager : MonoBehaviour
         }
     }
 
-    // ★ FIX 2: CAPTURED PHOTO CENTER-CROP (Image Sprite)
     private Sprite CreateCenterCroppedSprite(Texture2D texture, float targetWidth, float targetHeight)
     {
         float imgAspect = (float)texture.width / texture.height;
