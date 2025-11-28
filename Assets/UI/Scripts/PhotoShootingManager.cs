@@ -389,7 +389,7 @@ public class PhotoShootingManager : MonoBehaviour
             return;
         }
 
-        if (PrintingManager.Instance == null)
+       if (PrintingManager.Instance == null)
         {
             Debug.LogError("❌ PrintingManager not found in scene!");
             return;

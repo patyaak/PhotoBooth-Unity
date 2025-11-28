@@ -144,7 +144,7 @@ public class LoginManager : MonoBehaviour
 
         Texture2D tex = writer.Write(token);
         qrImage.texture = tex;
-        qrImage.rectTransform.sizeDelta = new Vector2(512, 512);
+        qrImage.rectTransform.sizeDelta = new Vector2(400, 400);
     }
 
     // =======================================================================

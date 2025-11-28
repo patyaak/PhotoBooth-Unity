@@ -220,7 +220,9 @@ public class GatchaManager : MonoBehaviour
             string gachaPrice = PlayerPrefs.GetString("gacha_price", "500");
 
             // Initiate payment with button index
-            PaymentManager.Instance.InitiateGachaPayment(boothID, gachaPrice, buttonIndex);
+  
+            PaymentManager.Instance.InitiateGachaPayment(boothID, -1, gachaPrice);
+
         }
         else
         {

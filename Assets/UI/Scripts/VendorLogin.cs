@@ -127,7 +127,8 @@ public class VendorLogin : MonoBehaviour
                     // MODIFIED: Store booth settings including gacha price and payment flag
                     // ============================================================
                     PlayerPrefs.SetString("booth_id", booth.booth_id);
-                    PlayerPrefs.SetString("gacha_price", booth.gacha_price ?? "500");
+                    PlayerPrefs.SetString("booth_price", booth.price);
+                    PlayerPrefs.SetString("gacha_price", booth.gacha_price);
                     PlayerPrefs.SetInt("payments_enabled", booth.payments_enabled ? 1 : 0);
                     PlayerPrefs.Save();
 

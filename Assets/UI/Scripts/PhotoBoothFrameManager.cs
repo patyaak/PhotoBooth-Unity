@@ -414,20 +414,23 @@ public class PhotoBoothFrameManager : MonoBehaviour
         if (selectedItem == null)
         {
             Debug.LogWarning("No frame selected!");
-            return;
+            return; // stop here if nothing is selected
         }
 
         bool paymentsEnabled = PlayerPrefs.GetInt("payments_enabled", 0) == 1;
         if (paymentsEnabled && PaymentManager.Instance != null)
         {
-            string price = PlayerPrefs.GetString("booth_price", "1000");
-            PaymentManager.Instance.InitiateFramePayment(selectedItem, boothID, price);
+            // Pass the selected frame to the PaymentManager
+            string price = PlayerPrefs.GetString("booth_price", "700");
+            PaymentManager.Instance.InitiateFramePayment(boothID, selectedItem, price);
+
         }
         else
         {
             ContinueAfterPayment(selectedItem);
         }
     }
+
 
     public void ContinueAfterPayment(FrameItem selectedItem)
     {
@@ -476,8 +479,9 @@ public class PhotoBoothFrameManager : MonoBehaviour
         bool paymentsEnabled = PlayerPrefs.GetInt("payments_enabled", 0) == 1;
         if (paymentsEnabled && PaymentManager.Instance != null)
         {
-            string gachaPrice = PlayerPrefs.GetString("gacha_price", "500");
-            PaymentManager.Instance.InitiateGachaPayment(boothID, gachaPrice, -1);
+            string gachaPrice = PlayerPrefs.GetString("gacha_price", "200");
+            PaymentManager.Instance.InitiateGachaPayment(boothID, -1, gachaPrice);
+
         }
         else
         {
