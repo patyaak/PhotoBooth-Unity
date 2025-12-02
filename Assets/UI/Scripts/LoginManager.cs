@@ -15,7 +15,10 @@ using System.Security.Cryptography.X509Certificates;
 #endif
 
 public class LoginManager : MonoBehaviour
-{
+{ 
+
+    public static LoginManager Instance;
+
     [Header("API Config")]
     public string baseUrl = "https://photo-stg-api.chvps3.aozora-okinawa.com";
     public int ttlSeconds = 160;
@@ -60,6 +63,12 @@ public class LoginManager : MonoBehaviour
 
         if (generateQRButton) generateQRButton.onClick.AddListener(OnGenerateQRClicked);
         if (GuestButton) GuestButton.onClick.AddListener(OnGuestBtnClick);
+    }
+
+    private void Awake()
+    {
+        if (Instance == null) Instance = this;
+        else Destroy(gameObject);
     }
 
     private void Update()

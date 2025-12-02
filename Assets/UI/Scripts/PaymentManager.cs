@@ -1,12 +1,14 @@
 ﻿using System;
 using System.Collections;
 using System.Text;
+using System.Threading.Tasks;
+using NativeWebSocket;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
+using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
-using UnityEngine.Networking;
-using TMPro;
 using ZXing;
-using Newtonsoft.Json;
 
 public class PaymentManager : MonoBehaviour
 {
@@ -17,29 +19,26 @@ public class PaymentManager : MonoBehaviour
     public TMP_Text priceText;
     public RawImage qrCodeImage;
     public Button cancelButton;
-    public GameObject loadingIndicator;
 
     [Header("Payment Settings")]
     public string apiBaseURL = "http://photo-stg-api.chvps3.aozora-okinawa.com/";
-    public float paymentCheckInterval = 2f;
-    public float paymentTimeout = 300f;
-
-    [Header("Mock Payment")]
-    public bool useMockPayment = false;
     public float mockPaymentDelay = 3f;
+    public bool useMockPayment = false;
 
     [Header("References")]
     public PhotoBoothFrameManager frameManager;
     public GatchaManager gatchaManager;
 
-    private string currentPaymentId;
     private string currentBoothId;
     private float currentPrice;
     private PaymentType currentPaymentType;
-    private Coroutine paymentCheckCoroutine;
     private int pendingGachaButtonIndex = -1;
-
     private FrameItem frameAfterPayment;
+    private string currentOrderId;
+
+    private WebSocket ws;
+    private bool isWebSocketConnected = false;
+
     public enum PaymentType { Frame, Gacha }
 
     private void Awake()
@@ -51,11 +50,19 @@ public class PaymentManager : MonoBehaviour
     private void Start()
     {
         paymentPanel?.SetActive(false);
-        cancelButton?.onClick.AddListener(OnCancelPayment);
-        if (loadingIndicator != null) loadingIndicator.SetActive(false);
+        if (cancelButton != null) cancelButton.onClick.AddListener(OnCancelPayment);
     }
 
-    #region Public Methods
+    private void Update()
+    {
+
+#if !UNITY_WEBGL || UNITY_EDITOR
+        ws?.DispatchMessageQueue();
+#endif
+    }
+
+
+    #region Public Methods  
     public void InitiateFramePayment(string boothId, FrameItem selectedFrame, string price)
     {
         if (string.IsNullOrEmpty(boothId) || selectedFrame == null) return;
@@ -63,13 +70,11 @@ public class PaymentManager : MonoBehaviour
         currentPaymentType = PaymentType.Frame;
         currentBoothId = boothId;
         currentPrice = float.Parse(price);
-
         frameAfterPayment = selectedFrame;
 
         ShowPaymentPanel(currentPrice);
         StartCoroutine(InitiatePaymentRequest());
     }
-
 
     public void InitiateGachaPayment(string boothId, int buttonIndex, string price)
     {
@@ -83,21 +88,14 @@ public class PaymentManager : MonoBehaviour
         ShowPaymentPanel(currentPrice);
         StartCoroutine(InitiatePaymentRequest());
     }
-
-
     #endregion
 
-
-
-    #region Payment Flow
-
+    #region Payment Flow  
     private void ShowPaymentPanel(float price)
     {
         paymentPanel.SetActive(true);
         priceText.text = $"¥{price:F0}";
-
-        if (qrCodeImage != null) qrCodeImage.gameObject.SetActive(false);
-        if (loadingIndicator != null) loadingIndicator.SetActive(true);
+        qrCodeImage?.gameObject.SetActive(false);
     }
 
     private IEnumerator InitiatePaymentRequest()
@@ -111,7 +109,6 @@ public class PaymentManager : MonoBehaviour
 
         string url = $"{apiBaseURL}api/booths/{currentBoothId}/payment/initiate";
 
-        // Fetch session/user ID from PlayerPrefs
         string sessionId = PlayerPrefs.GetString("session_id", "");
         string userId = PlayerPrefs.GetString("user_id", "");
         string mode = string.IsNullOrEmpty(userId) ? "guest" : "user";
@@ -128,246 +125,221 @@ public class PaymentManager : MonoBehaviour
         string jsonPayload = JsonConvert.SerializeObject(payload);
         Debug.Log("Payment Request Payload: " + jsonPayload);
 
-        using (UnityWebRequest request = new UnityWebRequest(url, "POST"))
+        using (var request = new UnityEngine.Networking.UnityWebRequest(url, "POST"))
         {
             byte[] bodyRaw = Encoding.UTF8.GetBytes(jsonPayload);
-            request.uploadHandler = new UploadHandlerRaw(bodyRaw);
-            request.downloadHandler = new DownloadHandlerBuffer();
+            request.uploadHandler = new UnityEngine.Networking.UploadHandlerRaw(bodyRaw);
+            request.downloadHandler = new UnityEngine.Networking.DownloadHandlerBuffer();
             request.SetRequestHeader("Content-Type", "application/json");
 
             yield return request.SendWebRequest();
 
-            string responseText = request.downloadHandler.text;
-            Debug.Log("Payment API Response: " + responseText);
-
-            if (request.result == UnityWebRequest.Result.Success)
+            if (request.result != UnityEngine.Networking.UnityWebRequest.Result.Success)
             {
-                PaymentInitiateResponse res = null;
-                try
-                {
-                    res = JsonConvert.DeserializeObject<PaymentInitiateResponse>(responseText);
-                }
-                catch (Exception e)
-                {
-                    Debug.LogError("JSON Parse Exception: " + e.Message);
-                    OnPaymentFailed("Failed to parse payment response.");
-                    yield break;
-                }
-
-                if (res == null)
-                {
-                    Debug.LogError("Payment response is null.");
-                    OnPaymentFailed("Payment response is empty.");
-                    yield break;
-                }
-
-                if (!res.success)
-                {
-                    Debug.LogWarning("Payment request failed on server.");
-                    OnPaymentFailed("Payment request failed on server.");
-                    yield break;
-                }
-
-                // Safe null handling for fields
-                currentPaymentId = res.payment_id ?? "";
-                string accessId = res.access_id ?? "";
-                string token = res.token ?? "";
-                string startUrl = res.start_url ?? "";
-
-                if (string.IsNullOrEmpty(currentPaymentId) || string.IsNullOrEmpty(accessId) ||
-                    string.IsNullOrEmpty(token) || string.IsNullOrEmpty(startUrl))
-                {
-                    Debug.LogWarning("Payment response missing some fields.");
-                }
-
-                string qrData = $"access_id={accessId}&token={token}&start_url={startUrl}";
-                GenerateQRCode(qrData);
-
-                if (paymentCheckCoroutine != null) StopCoroutine(paymentCheckCoroutine);
-                paymentCheckCoroutine = StartCoroutine(CheckPaymentStatus());
-            }
-            else
-            {
-                Debug.LogError($"Payment Request Failed: {request.error}");
                 OnPaymentFailed($"Payment request error: {request.error}");
+                yield break;
             }
 
-            if (loadingIndicator != null) loadingIndicator.SetActive(false);
-        }
-    }
+            PaymentInitiateResponse res;
+            try { res = JsonConvert.DeserializeObject<PaymentInitiateResponse>(request.downloadHandler.text); }
+            catch (Exception e) { OnPaymentFailed("Failed to parse payment response: " + e.Message); yield break; }
 
-
-    private IEnumerator CheckPaymentStatus()
-    {
-        float elapsed = 0f;
-        while (elapsed < paymentTimeout)
-        {
-            yield return new WaitForSeconds(paymentCheckInterval);
-            elapsed += paymentCheckInterval;
-
-            string url = $"{apiBaseURL}api/photobooth/payments/{currentPaymentId}/status";
-            using (UnityWebRequest request = UnityWebRequest.Get(url))
+            if (res == null || !res.success || string.IsNullOrEmpty(res.start_url))
             {
-                yield return request.SendWebRequest();
-
-                if (request.result == UnityWebRequest.Result.Success)
-                {
-                    try
-                    {
-                        var res = JsonConvert.DeserializeObject<PaymentStatusResponse>(request.downloadHandler.text);
-                        if (res != null && res.success)
-                        {
-                            string status = res.data.status.ToLower();
-                            if (status == "completed" || status == "success") { OnPaymentSuccess(); yield break; }
-                            if (status == "failed" || status == "cancelled") { OnPaymentFailed("Payment was cancelled."); yield break; }
-                        }
-                    }
-                    catch (Exception e)
-                    {
-                        Debug.LogWarning("Payment Status Parse Error: " + e.Message);
-                    }
-                }
+                OnPaymentFailed("Payment initiation failed.");
+                yield break;
             }
+
+            currentOrderId = res.order_id;
+            GenerateQRCode(res.start_url);
+            Debug.Log(res.start_url);
+
+            ConnectWebSocketForPayment(currentOrderId);
         }
-
-        OnPaymentFailed("Payment timed out.");
     }
-
     #endregion
 
-    #region QR Code
-
+    #region QR Code  
     private void GenerateQRCode(string data)
     {
         var writer = new BarcodeWriter<Texture2D>
         {
             Format = BarcodeFormat.QR_CODE,
-            Options = new ZXing.Common.EncodingOptions
-            {
-                Width = 400,
-                Height = 400,
-                Margin = 0
-            },
+            Options = new ZXing.Common.EncodingOptions { Width = 400, Height = 400, Margin = 0 },
             Renderer = new ZXing.Rendering.Texture2DRenderer()
         };
 
-        Texture2D tex = writer.Write(data);
-        qrCodeImage.texture = tex;
-        qrCodeImage.rectTransform.sizeDelta = new Vector2(512, 512);
+        qrCodeImage.texture = writer.Write(data);
+        qrCodeImage.rectTransform.sizeDelta = new Vector2(400, 400);
         qrCodeImage.gameObject.SetActive(true);
     }
-
     #endregion
 
-    #region Payment Handlers
+    #region WebSocket Payment  
+    private async void ConnectWebSocketForPayment(string orderId)
+    {
+        if (string.IsNullOrEmpty(orderId)) return;
 
+        await CloseWebSocketAsync();
+
+        string wsUrl = $"wss://photo-stg-api.chvps3.aozora-okinawa.com/app/{LoginManager.Instance.boothKey}";
+        ws = new WebSocket(wsUrl);
+
+        ws.OnOpen += () => { isWebSocketConnected = true; Debug.Log("Payment WS Connected!"); SendPaymentSubscription(orderId); };
+        ws.OnError += (e) => { isWebSocketConnected = false; Debug.LogError("Payment WS Error: " + e); };
+        ws.OnClose += (code) => { isWebSocketConnected = false; Debug.LogWarning("Payment WS Closed: " + code); };
+        ws.OnMessage += (bytes) => { HandlePaymentWebSocketMessage(Encoding.UTF8.GetString(bytes)); };
+
+        try { await ws.Connect(); }
+        catch (Exception ex) { Debug.LogError("Payment WS Connect Failed: " + ex.Message); }
+    }
+
+    private async void SendPaymentSubscription(string orderId)
+    {
+        if (!isWebSocketConnected || ws == null) return;
+
+        var sub = new PusherSubscribeEvent { Event = "pusher:subscribe", data = new SubscribeData { channel = $"payment_status.{orderId}" } };
+        try { await ws.SendText(JsonConvert.SerializeObject(sub)); }
+        catch (Exception ex) { Debug.LogError("Failed to send subscribe: " + ex.Message); }
+    }
+    private void HandlePaymentWebSocketMessage(string json)
+    {
+        Debug.Log("WS RAW MESSAGE: " + json);
+
+        try
+        {
+            var j = JObject.Parse(json);
+            Debug.Log("Parsed WS JSON: " + j.ToString());
+
+            string evt = (string)(j["event"] ?? j["@event"]);
+            if (!string.IsNullOrEmpty(evt))
+            {
+                if (evt == "payment-updated" && j["data"] != null)
+                {
+                    JObject dataObj = null;
+
+                    // Handle stringified JSON
+                    if (j["data"].Type == JTokenType.String)
+                        dataObj = JObject.Parse(j["data"].ToString());
+                    else if (j["data"].Type == JTokenType.Object)
+                        dataObj = (JObject)j["data"];
+
+                    if (dataObj != null)
+                    {
+                        string orderId = dataObj["order_id"]?.ToString() ?? dataObj["orderId"]?.ToString();
+                        string status = dataObj["status"]?.ToString()?.ToLower();
+
+                        Debug.Log($"Payment Updated: orderId={orderId}, status={status}");
+
+                        if (orderId == currentOrderId)
+                        {
+                            if (status == "succeeded" || status == "success") OnPaymentSuccess();
+                            else if (status == "failed") OnPaymentFailed("Payment failed via backend");
+                        }
+                    }
+                }
+                else
+                {
+                    Debug.LogWarning("Unhandled WS event: " + evt);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.LogWarning("WS Parse Error: " + ex.Message);
+        }
+    }
+
+
+
+    private async Task CloseWebSocketAsync()
+    {
+        if (ws == null) return;
+        if (ws.State == WebSocketState.Open || ws.State == WebSocketState.Connecting)
+        {
+            try { await ws.Close(); }
+            catch (Exception ex) { Debug.LogWarning("WS close warning: " + ex.Message); }
+        }
+        ws = null;
+        isWebSocketConnected = false;
+    }
+    #endregion
+
+    #region Payment Handlers  
     private void OnPaymentSuccess()
     {
         Debug.Log("✅ Payment successful!");
-        paymentCheckCoroutine = null;
-
         StartCoroutine(HidePanelAndProceed());
     }
 
     private IEnumerator HidePanelAndProceed()
     {
-        yield return new WaitForSeconds(1.5f);
+        yield return new WaitForSeconds(1f);
         paymentPanel.SetActive(false);
 
-        if (currentPaymentType == PaymentType.Frame)
+        if (currentPaymentType == PaymentType.Frame && frameAfterPayment != null)
         {
-            if (frameAfterPayment != null)
-                frameManager?.ContinueAfterPayment(frameAfterPayment);
-            else
-                Debug.LogWarning("No frame stored for ContinueAfterPayment!");
+            frameManager?.ContinueAfterPayment(frameAfterPayment);
+            //PhotoShootingManager.Instance?.StartShooting(frameAfterPayment);
+            PhotoBoothFrameManager.Instance.ContinueAfterPayment(frameAfterPayment);
         }
-        else if (currentPaymentType == PaymentType.Gacha)
-        {
-            gatchaManager?.ContinueGachaAfterPayment(pendingGachaButtonIndex);
-        }
+        else if (currentPaymentType == PaymentType.Gacha) gatchaManager?.ContinueGachaAfterPayment(pendingGachaButtonIndex);
 
         ResetPaymentState();
+
+
+        CloseWebSocketAsync();
     }
 
 
     private void OnPaymentFailed(string message)
     {
         Debug.LogWarning("❌ Payment Failed: " + message);
-        paymentCheckCoroutine = null;
         StartCoroutine(AutoClosePanel());
+
+
+        CloseWebSocketAsync();
     }
+
 
     private IEnumerator AutoClosePanel()
     {
         yield return new WaitForSeconds(3f);
-        ClosePaymentPanel();
+        paymentPanel.SetActive(false);
+        ResetPaymentState();
     }
 
     public void OnCancelPayment()
     {
         Debug.Log("❌ Payment cancelled by user");
-        if (paymentCheckCoroutine != null) StopCoroutine(paymentCheckCoroutine);
-        paymentCheckCoroutine = null;
-
-        if (!string.IsNullOrEmpty(currentPaymentId)) StartCoroutine(CancelPaymentRequest());
-        ClosePaymentPanel();
-    }
-
-    private IEnumerator CancelPaymentRequest()
-    {
-        string url = $"{apiBaseURL}api/photobooth/payments/{currentPaymentId}/cancel";
-        using (UnityWebRequest request = UnityWebRequest.PostWwwForm(url, ""))
-        {
-            yield return request.SendWebRequest();
-            if (request.result == UnityWebRequest.Result.Success) Debug.Log("Payment cancelled on server");
-            else Debug.LogWarning($"Cancel payment failed: {request.error}");
-        }
-    }
-
-    private void ClosePaymentPanel()
-    {
         paymentPanel.SetActive(false);
         ResetPaymentState();
+
+
+        CloseWebSocketAsync();
     }
 
     private void ResetPaymentState()
     {
-        currentPaymentId = null;
         currentBoothId = null;
         currentPrice = 0f;
         pendingGachaButtonIndex = -1;
+        frameAfterPayment = null;
+        currentOrderId = null;
     }
-
     #endregion
 
-    #region Data Classes
-
-    [Serializable]
-    private class PaymentInitiateResponse
-    {
-        public bool success;
-        public string order_id;
-        public string payment_id;
-        public string access_id;
-        public string token;
-        public string start_url;
-        public string startlimitduration;
-    }
-
-    [Serializable]
-    private class PaymentStatusResponse
-    {
-        public bool success;
-        public PaymentStatusData data;
-    }
-
-    [Serializable]
-    private class PaymentStatusData
-    {
-        public string payment_id;
-        public string status;
-        public float amount;
-    }
-
+    #region Data Classes  
+    [Serializable] private class PaymentInitiateResponse { public bool success; public string order_id; public string payment_id; public string start_url; }
+    [Serializable] private class CallbackResponse { public bool success; public string message; public string order_id; }
     #endregion
+
+    #region Pusher helper classes  
+    private class PusherSubscribeEvent { [JsonProperty("event")] public string Event { get; set; } public SubscribeData data; }
+    private class SubscribeData { public string channel; }
+    #endregion
+
+    private async void OnApplicationQuit() => await CloseWebSocketAsync();
+
+
 }
