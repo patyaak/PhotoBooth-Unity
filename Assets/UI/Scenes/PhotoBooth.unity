@@ -6794,7 +6794,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   logPanel: {fileID: 1143656253}
   logContentParent: {fileID: 1803503178}
-  logEntryPrefab: {fileID: 8935481730560274761, guid: 35c8102dde1e9854a98ed1e31e765d8e, type: 3}
+  logEntryPrefab: {fileID: 7351069991974379720, guid: 35c8102dde1e9854a98ed1e31e765d8e, type: 3}
   statsText: {fileID: 1360281327}
   lastSyncText: {fileID: 84693217}
   allLogsButton: {fileID: 76274898}
@@ -10385,8 +10385,8 @@ RectTransform:
   m_Father: {fileID: 1825068101}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0, y: 0}
-  m_AnchorMax: {x: 1, y: 1}
-  m_AnchoredPosition: {x: 0.0004590566, y: 0}
+  m_AnchorMax: {x: 1, y: 0.966}
+  m_AnchoredPosition: {x: 0, y: 18.018738}
   m_SizeDelta: {x: -1883, y: 0}
   m_Pivot: {x: 0, y: 1}
 --- !u!114 &1803503179
@@ -11319,30 +11319,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 29f60cf34fcad014abe3f8ca57f4da62, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  printingPanel: {fileID: 1609352119}
-  errorPanel: {fileID: 2047740432}
-  statusText: {fileID: 52024130}
-  errorText: {fileID: 1952797596}
-  progressBar: {fileID: 964407030}
-  retryButton: {fileID: 1166889630}
-  previewImage: {fileID: 0}
-  printerName: Canon MF3010
-  paperSize: 0
-  printWidth: 900
-  printHeight: 1500
-  printCopies: 1
-  autoCloseAfterPrint: 1
-  autoCloseDelay: 2
-  showRealtimeUSBErrors: 1
-  usbCheckIntervalWhenIdle: 3
-  usbCheckIntervalDuringPrint: 0.5
-  checkPrinterOnStart: 1
-  startupErrorPanel: {fileID: 686505202}
-  startupErrorText: {fileID: 529883099}
-  startupRetryButton: {fileID: 969456664}
-  currentImageToPrint: {fileID: 0}
-  isPrinting: 0
-  lastKnownStatus: 10
 --- !u!1 &1990448606
 GameObject:
   m_ObjectHideFlags: 0

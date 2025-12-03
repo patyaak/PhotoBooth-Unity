@@ -150,7 +150,6 @@ public class LogViewerUI : MonoBehaviour
         // Update stats
         UpdateStats();
     }
-
     private void CreateLogEntry(LogEntry log)
     {
         if (logEntryPrefab == null || logContentParent == null)
@@ -158,11 +157,11 @@ public class LogViewerUI : MonoBehaviour
 
         GameObject entry = Instantiate(logEntryPrefab, logContentParent);
 
-        // Find text components (assuming prefab has these)
-        TMP_Text timeText = entry.transform.Find("TimeText")?.GetComponent<TMP_Text>();
-        TMP_Text typeText = entry.transform.Find("TypeText")?.GetComponent<TMP_Text>();
-        TMP_Text severityText = entry.transform.Find("SeverityText")?.GetComponent<TMP_Text>();
-        TMP_Text messageText = entry.transform.Find("MessageText")?.GetComponent<TMP_Text>();
+        // FIXED PATHS
+        TMP_Text timeText = entry.transform.Find("Header/TimeText")?.GetComponent<TMP_Text>();
+        TMP_Text typeText = entry.transform.Find("Header/TypeText")?.GetComponent<TMP_Text>();
+        TMP_Text severityText = entry.transform.Find("Header/SeverityText")?.GetComponent<TMP_Text>();
+        TMP_Text messageText = entry.transform.Find("Header/MessageText")?.GetComponent<TMP_Text>();
         TMP_Text detailsText = entry.transform.Find("DetailsText")?.GetComponent<TMP_Text>();
         Image background = entry.GetComponent<Image>();
 
@@ -177,7 +176,7 @@ public class LogViewerUI : MonoBehaviour
         if (typeText != null)
             typeText.text = log.log_type.ToString();
 
-        // Set severity with color
+        // Set severity
         if (severityText != null)
         {
             severityText.text = log.severity.ToString();
@@ -188,13 +187,13 @@ public class LogViewerUI : MonoBehaviour
         if (messageText != null)
             messageText.text = log.message;
 
-        // Set details (collapsed by default)
+        // Set details
         if (detailsText != null)
         {
             if (!string.IsNullOrEmpty(log.details))
             {
                 detailsText.text = FormatDetails(log.details);
-                detailsText.gameObject.SetActive(false); // Hidden by default
+                detailsText.gameObject.SetActive(false);
             }
             else
             {
@@ -202,7 +201,7 @@ public class LogViewerUI : MonoBehaviour
             }
         }
 
-        // Set background color based on severity
+        // Background color
         if (background != null)
         {
             Color bgColor = GetSeverityColor(log.severity);
@@ -210,24 +209,24 @@ public class LogViewerUI : MonoBehaviour
             background.color = bgColor;
         }
 
-        // Add click listener to expand/collapse details
-        Button entryButton = entry.GetComponent<Button>();
-        if (entryButton == null)
-            entryButton = entry.AddComponent<Button>();
+        // Expand/collapse
+        Button entryButton = entry.GetComponent<Button>() ?? entry.AddComponent<Button>();
 
         entryButton.onClick.AddListener(() =>
         {
             if (detailsText != null && !string.IsNullOrEmpty(log.details))
-                detailsText.gameObject.SetActive(!detailsText.gameObject.activeSelf);
+            {
+                bool active = detailsText.gameObject.activeSelf;
+                detailsText.gameObject.SetActive(!active);
+                LayoutRebuilder.ForceRebuildLayoutImmediate(entry.GetComponent<RectTransform>());
+            }
         });
 
-        // Mark synced logs differently
-        if (log.synced)
-        {
-            if (typeText != null)
-                typeText.text += " ✓";
-        }
+        // Add synced tick
+        if (log.synced && typeText != null)
+            typeText.text += " ✓";
     }
+
 
     private string FormatDetails(string details)
     {
