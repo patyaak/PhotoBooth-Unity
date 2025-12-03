@@ -17,6 +17,7 @@ public class PhotoShootingManager : MonoBehaviour
 
     [Header("Countdown")]
     public TMP_Text timerText;
+    public Image flashPanel;
 
     [Header("Camera & Preview")]
     public RawImage cameraPreview;
@@ -119,6 +120,7 @@ public class PhotoShootingManager : MonoBehaviour
         capturePreview.gameObject.SetActive(false);
         cameraPreview.gameObject.SetActive(true);
 
+        // Set aspect ratio if placeholder exists
         if (currentShotIndex < placeholders.Count)
         {
             var ph = placeholders[currentShotIndex];
@@ -129,15 +131,47 @@ public class PhotoShootingManager : MonoBehaviour
             SetCameraPreviewAspect(placeholderAspect);
         }
 
+        // ====== NEW COUNTDOWN ======
+        timerText.gameObject.SetActive(true);
+
         for (int i = 3; i > 0; i--)
         {
             timerText.text = i.ToString();
             yield return new WaitForSeconds(1f);
         }
 
-        timerText.text = "笑顔";
-        yield return new WaitForSeconds(0.5f);
+        timerText.text = "";
+        timerText.gameObject.SetActive(false);
+
+        // ====== FLASH EFFECT ======
+        yield return StartCoroutine(FlashEffect());
+
+        // Capture
         CapturePhoto();
+    }
+
+    private IEnumerator FlashEffect()
+    {
+        if (flashPanel == null)
+            yield break;
+
+        flashPanel.gameObject.SetActive(true);
+
+        // fade-in (quick)
+        for (float a = 0; a <= 1; a += Time.deltaTime * 8f)
+        {
+            flashPanel.color = new Color(1, 1, 1, a);
+            yield return null;
+        }
+
+        // fade-out (slower)
+        for (float a = 1; a >= 0; a -= Time.deltaTime * 4f)
+        {
+            flashPanel.color = new Color(1, 1, 1, a);
+            yield return null;
+        }
+
+        flashPanel.gameObject.SetActive(false);
     }
 
     private Texture2D finalCroppedTex;
