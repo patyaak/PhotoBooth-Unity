@@ -65,6 +65,18 @@ public class PaymentManager : MonoBehaviour
     #region Public Methods  
     public void InitiateFramePayment(string boothId, FrameItem selectedFrame, string price)
     {
+
+
+        // LOG: Payment initiated
+        LoggingManager.Instance?.LogPayment(
+            orderId: System.Guid.NewGuid().ToString(), // temporary ID
+            paymentType: "frame",
+            provider: "paypay",
+            amount: float.Parse(price),
+            status: "initiated",
+            frameId: selectedFrame.frameData.frame_id
+        );
+
         if (string.IsNullOrEmpty(boothId) || selectedFrame == null) return;
 
         currentPaymentType = PaymentType.Frame;
@@ -268,6 +280,17 @@ public class PaymentManager : MonoBehaviour
     #region Payment Handlers  
     private void OnPaymentSuccess()
     {
+        // LOG: Payment success
+        LoggingManager.Instance?.LogPayment(
+            orderId: currentOrderId,
+            paymentType: currentPaymentType == PaymentType.Frame ? "frame" : "gacha",
+            provider: "paypay",
+            amount: currentPrice,
+            status: "success",
+            frameId: frameAfterPayment?.frameData.frame_id
+        );
+
+
         Debug.Log("✅ Payment successful!");
         StartCoroutine(HidePanelAndProceed());
     }
@@ -294,6 +317,18 @@ public class PaymentManager : MonoBehaviour
 
     private void OnPaymentFailed(string message)
     {
+
+        // LOG: Payment failed
+        LoggingManager.Instance?.LogPayment(
+            orderId: currentOrderId,
+            paymentType: currentPaymentType == PaymentType.Frame ? "frame" : "gacha",
+            provider: "paypay",
+            amount: currentPrice,
+            status: "failed",
+            frameId: frameAfterPayment?.frameData.frame_id,
+            errorMessage: message
+        );
+
         Debug.LogWarning("❌ Payment Failed: " + message);
         StartCoroutine(AutoClosePanel());
 

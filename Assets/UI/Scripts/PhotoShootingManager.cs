@@ -391,20 +391,20 @@ public class PhotoShootingManager : MonoBehaviour
             Debug.Log($"✅ Final composed image captured for printing: {finalComposedImageForPrint.width}x{finalComposedImageForPrint.height}");
 
             // Auto-print or show print button
-            if (autoPrintAfterCapture && PrintingManager.Instance != null)
-            {
-                // Auto print immediately
-                PrintingManager.Instance.PrintFinalImage(finalComposedImageForPrint);
-            }
-            else if (printButton != null && PrintingManager.Instance != null)
-            {
-                // Show print button
-                printButton.gameObject.SetActive(true);
-                printButton.onClick.RemoveAllListeners();
-                printButton.onClick.AddListener(OnPrintButtonClicked);
+            //if (autoPrintAfterCapture && PrintingManager.Instance != null)
+            //{
+            //    // Auto print immediately
+            //    PrintingManager.Instance.PrintFinalImage(finalComposedImageForPrint);
+            //}
+            //else if (printButton != null && PrintingManager.Instance != null)
+            //{
+            //    // Show print button
+            //    printButton.gameObject.SetActive(true);
+            //    printButton.onClick.RemoveAllListeners();
+            //    printButton.onClick.AddListener(OnPrintButtonClicked);
 
-                Debug.Log("🖨️ Print button activated");
-            }
+            //    Debug.Log("🖨️ Print button activated");
+            //}
         }
         else
         {
@@ -423,20 +423,20 @@ public class PhotoShootingManager : MonoBehaviour
             return;
         }
 
-       if (PrintingManager.Instance == null)
-        {
-            Debug.LogError("❌ PrintingManager not found in scene!");
-            return;
-        }
+       //if (PrintingManager.Instance == null)
+       // {
+       //     Debug.LogError("❌ PrintingManager not found in scene!");
+       //     return;
+       // }
 
-        Debug.Log("🖨️ Print button clicked - sending to PrintingManager");
+       // Debug.Log("🖨️ Print button clicked - sending to PrintingManager");
 
         // Hide print button after clicking
         if (printButton != null)
             printButton.gameObject.SetActive(false);
 
         // Send to PrintingManager for printing
-        PrintingManager.Instance.PrintFinalImage(finalComposedImageForPrint);
+       // PrintingManager.Instance.PrintFinalImage(finalComposedImageForPrint);
     }
 
     // ============================================================
