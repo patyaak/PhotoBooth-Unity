@@ -40,12 +40,8 @@ public class GatchaManager : MonoBehaviour
         else Destroy(gameObject);
     }
 
-
     public void SetBoothID(string id) => boothID = id;
 
-    // ============================================================
-    // MODIFIED: ShowGatchaButtons() - NEW METHOD for payment flow
-    // ============================================================
     public void ShowGatchaButtons()
     {
         darkpanel.SetActive(true);
@@ -55,9 +51,6 @@ public class GatchaManager : MonoBehaviour
         StartCoroutine(DissolveFramesThenShowButtons());
     }
 
-    // ============================================================
-    // KEPT: PlayGatchaAnimation() - For non-payment flow (if needed)
-    // ============================================================
     public void PlayGatchaAnimation()
     {
         darkpanel.SetActive(true);
@@ -67,9 +60,6 @@ public class GatchaManager : MonoBehaviour
         StartCoroutine(DissolveFramesThenPlayAnimation());
     }
 
-    // ============================================================
-    // NEW: PlayGatchaAnimationAfterPayment() - Called after payment success
-    // ============================================================
     public void PlayGatchaAnimationAfterPayment()
     {
         Debug.Log("🎰 Starting gacha animation after payment");
@@ -124,9 +114,6 @@ public class GatchaManager : MonoBehaviour
         }
     }
 
-    // ============================================================
-    // NEW: OnGachaChildButtonClickedAfterPayment() - No payment check
-    // ============================================================
     private void OnGachaChildButtonClickedAfterPayment(int buttonIndex)
     {
         Debug.Log($"🎰 Gacha button {buttonIndex} clicked (payment already done)");
@@ -138,9 +125,6 @@ public class GatchaManager : MonoBehaviour
         StartCoroutine(ShakeThenReveal(buttonIndex));
     }
 
-    // ============================================================
-    // NEW: DissolveFramesThenShowButtons() - Shows buttons without animation
-    // ============================================================
     private IEnumerator DissolveFramesThenShowButtons()
     {
         if (spawnedFrames.Count > 0)
@@ -207,33 +191,17 @@ public class GatchaManager : MonoBehaviour
         }
     }
 
-    // ============================================================
-    // MODIFIED: OnGachaChildButtonClicked() - Payment integration
-    // ============================================================
     private void OnGachaChildButtonClicked(int buttonIndex)
     {
-        bool paymentsEnabled = PlayerPrefs.GetInt("payments_enabled", 0) == 1;
+        Debug.Log($"🎰 Gacha button {buttonIndex} clicked");
 
-        if (paymentsEnabled && PaymentManager.Instance != null)
-        {
-            // Get gacha price
-            string gachaPrice = PlayerPrefs.GetString("gacha_price", "500");
+        // Proceed directly to reveal
+        foreach (Transform child in gatchaButtons.transform)
+            child.GetComponent<Button>().interactable = false;
 
-            // Initiate payment with button index
-  
-            PaymentManager.Instance.InitiateGachaPayment(boothID, -1, gachaPrice);
-
-        }
-        else
-        {
-            // No payment - proceed directly
-            ContinueGachaAfterPayment(buttonIndex);
-        }
+        StartCoroutine(ShakeThenReveal(buttonIndex));
     }
 
-    // ============================================================
-    // NEW: ContinueGachaAfterPayment() - Called after payment success
-    // ============================================================
     public void ContinueGachaAfterPayment(int buttonIndex)
     {
         foreach (Transform child in gatchaButtons.transform)
@@ -276,7 +244,6 @@ public class GatchaManager : MonoBehaviour
         // 4. Fetch gacha result and instantiate in gatchaResult
         yield return StartCoroutine(FetchGachaResultAndInstantiate(index));
     }
-
 
     private IEnumerator ShakeButton(Transform target, float duration, float magnitude)
     {
@@ -434,7 +401,6 @@ public class GatchaManager : MonoBehaviour
         gatchaButtons.SetActive(false);
         StartCoroutine(ShowGatchaWinPanel(clickedResultFrame));
     }
-
 
     private IEnumerator InstantiateFrameOnButton(int buttonIndex, Frame frame, Vector3 targetScale, bool isResultFrame = false)
     {
@@ -655,9 +621,9 @@ public class GatchaManager : MonoBehaviour
         {
             item.SetupFromGacha(resultFrame);
             item.DisableSelection(true);
-            PhotoBoothFrameManager.Instance.SelectFrame(item);
         }
 
+        // Download thumbnail
         if (!string.IsNullOrEmpty(resultFrame.thumb_path) && item != null && item.frameImg != null)
         {
             bool isOffline = Application.internetReachability == NetworkReachability.NotReachable;
@@ -673,6 +639,30 @@ public class GatchaManager : MonoBehaviour
                 Sprite s = Sprite.Create(tex, new Rect(0, 0, tex.width, tex.height), new Vector2(0.5f, 0.5f));
                 item.frameImg.sprite = s;
                 Color c = item.frameImg.color; c.a = 1f; item.frameImg.color = c;
+            }
+        }
+
+        // Download frame asset for shooting
+        if (!string.IsNullOrEmpty(resultFrame.asset_path))
+        {
+            Debug.Log("📥 Pre-downloading frame asset: " + resultFrame.asset_path);
+            Texture2D assetTex = null;
+
+            string assetUrl = resultFrame.asset_path;
+            if (!assetUrl.StartsWith("http"))
+            {
+                string baseUrl = PhotoBoothFrameManager.Instance.apiBaseURL;
+                if (!baseUrl.EndsWith("/")) baseUrl += "/";
+                if (assetUrl.StartsWith("/")) assetUrl = assetUrl.Substring(1);
+                assetUrl = baseUrl + assetUrl;
+            }
+
+            yield return FrameCacheManager.DownloadAndCacheTexture(assetUrl, t2 => assetTex = t2);
+
+            if (assetTex != null && PhotoBoothFrameManager.Instance != null)
+            {
+                PhotoBoothFrameManager.Instance.assetCache[assetUrl] = assetTex;
+                Debug.Log("✅ Frame asset cached");
             }
         }
 
@@ -693,6 +683,7 @@ public class GatchaManager : MonoBehaviour
 
         yield return new WaitForSeconds(1.0f);
 
+        // Fade out animation
         float fadeOutTime = 0.7f;
         t = 0f;
         Vector3 startScale = obj.transform.localScale;
@@ -702,14 +693,34 @@ public class GatchaManager : MonoBehaviour
         {
             t += Time.deltaTime;
             float p = t / fadeOutTime;
-
             frameCg.alpha = Mathf.Lerp(1f, 0f, p);
             obj.transform.localScale = Vector3.Lerp(startScale, endScale, p);
-
             yield return null;
         }
 
+        // SELECT the frame BEFORE closing win panel
+        if (item != null)
+        {
+            Debug.Log("🎯 Selecting gacha frame: " + resultFrame.frame_id);
+            PhotoBoothFrameManager.Instance.SelectFrame(item);
+        }
+
+        // Clear payment state
+        if (PaymentManager.Instance != null)
+        {
+            Debug.Log("🎰 Notifying PaymentManager: gacha reveal complete");
+            PaymentManager.Instance.OnGachaRevealComplete();
+        }
+
+        // Close win panel
+        gatchaWin.SetActive(false);
+        Debug.Log("✅ Gacha win panel closed");
+
+        // Small delay to ensure everything is ready
+        yield return new WaitForSeconds(0.2f);
+
+        // Trigger decide button
+        Debug.Log("🎯 Triggering OnDecideButtonClicked for gacha frame");
         PhotoBoothFrameManager.Instance.OnDecideButtonClicked();
-        Debug.Log("shoot start");
     }
 }

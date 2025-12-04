@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections;
+using System.Collections.Generic;
 using System.Text;
 using System.Threading.Tasks;
 using NativeWebSocket;
@@ -7,6 +8,7 @@ using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using TMPro;
 using UnityEngine;
+using UnityEngine.Networking;
 using UnityEngine.UI;
 using ZXing;
 
@@ -31,7 +33,7 @@ public class PaymentManager : MonoBehaviour
 
     private string currentBoothId;
     private float currentPrice;
-    private PaymentType currentPaymentType;
+    public PaymentType currentPaymentType { get; private set; } = PaymentType.None;
     private int pendingGachaButtonIndex = -1;
     private FrameItem frameAfterPayment;
     private string currentOrderId;
@@ -39,7 +41,10 @@ public class PaymentManager : MonoBehaviour
     private WebSocket ws;
     private bool isWebSocketConnected = false;
 
-    public enum PaymentType { Frame, Gacha }
+    private bool isInGachaFlow = false;
+    public bool IsInGachaFlow() => isInGachaFlow;
+
+    public enum PaymentType { None = 0, Frame = 1, Gacha = 2 }
 
     private void Awake()
     {
@@ -55,17 +60,21 @@ public class PaymentManager : MonoBehaviour
 
     private void Update()
     {
-
 #if !UNITY_WEBGL || UNITY_EDITOR
         ws?.DispatchMessageQueue();
 #endif
     }
 
-
-    #region Public Methods  
+    #region Public Methods
     public void InitiateFramePayment(string boothId, FrameItem selectedFrame, string price)
     {
+        if (gatchaManager != null && gatchaManager.gatchaWin != null && gatchaManager.gatchaWin.activeSelf)
+        {
+            Debug.Log("⚠️ Ignoring frame payment request - gacha reveal in progress");
+            return;
+        }
 
+        if (string.IsNullOrEmpty(boothId) || selectedFrame == null) return;
 
         // LOG: Payment initiated
         LoggingManager.Instance?.LogPayment(
@@ -76,8 +85,6 @@ public class PaymentManager : MonoBehaviour
             status: "initiated",
             frameId: selectedFrame.frameData.frame_id
         );
-
-        if (string.IsNullOrEmpty(boothId) || selectedFrame == null) return;
 
         currentPaymentType = PaymentType.Frame;
         currentBoothId = boothId;
@@ -100,11 +107,36 @@ public class PaymentManager : MonoBehaviour
         ShowPaymentPanel(currentPrice);
         StartCoroutine(InitiatePaymentRequest());
     }
+
+    // Called by external code when reveal/flow finishes to ensure payment won't re-trigger
+    public void OnGachaRevealComplete()
+    {
+        Debug.Log("[PaymentManager] OnGachaRevealComplete - clearing payment state for gacha");
+
+        // Clear payment state but KEEP the gacha flow flag
+        // The flag will be cleared when shooting actually starts
+        pendingGachaButtonIndex = -1;
+        currentOrderId = null;
+        currentPaymentType = PaymentType.None;
+
+        if (paymentPanel != null && paymentPanel.activeSelf)
+            paymentPanel.SetActive(false);
+
+        _ = CloseWebSocketAsync();
+
+        Debug.Log($"✅ Payment state cleared. Gacha flow flag: {isInGachaFlow}");
+    }
     #endregion
 
-    #region Payment Flow  
+    public void ClearGachaFlowFlag()
+    {
+        Debug.Log("[PaymentManager] Clearing gacha flow flag - shooting started");
+        isInGachaFlow = false;
+    }
+    #region Payment Flow
     private void ShowPaymentPanel(float price)
     {
+        if (paymentPanel == null) return;
         paymentPanel.SetActive(true);
         priceText.text = $"¥{price:F0}";
         qrCodeImage?.gameObject.SetActive(false);
@@ -171,7 +203,7 @@ public class PaymentManager : MonoBehaviour
     }
     #endregion
 
-    #region QR Code  
+    #region QR Code
     private void GenerateQRCode(string data)
     {
         var writer = new BarcodeWriter<Texture2D>
@@ -187,7 +219,7 @@ public class PaymentManager : MonoBehaviour
     }
     #endregion
 
-    #region WebSocket Payment  
+    #region WebSocket Payment
     private async void ConnectWebSocketForPayment(string orderId)
     {
         if (string.IsNullOrEmpty(orderId)) return;
@@ -214,6 +246,7 @@ public class PaymentManager : MonoBehaviour
         try { await ws.SendText(JsonConvert.SerializeObject(sub)); }
         catch (Exception ex) { Debug.LogError("Failed to send subscribe: " + ex.Message); }
     }
+
     private void HandlePaymentWebSocketMessage(string json)
     {
         Debug.Log("WS RAW MESSAGE: " + json);
@@ -263,7 +296,6 @@ public class PaymentManager : MonoBehaviour
     }
 
 
-
     private async Task CloseWebSocketAsync()
     {
         if (ws == null) return;
@@ -277,7 +309,7 @@ public class PaymentManager : MonoBehaviour
     }
     #endregion
 
-    #region Payment Handlers  
+    #region Payment Handlers
     private void OnPaymentSuccess()
     {
         // LOG: Payment success
@@ -290,26 +322,44 @@ public class PaymentManager : MonoBehaviour
             frameId: frameAfterPayment?.frameData.frame_id
         );
 
-
         Debug.Log("✅ Payment successful!");
         StartCoroutine(HidePanelAndProceed());
     }
 
+
     private IEnumerator HidePanelAndProceed()
     {
         yield return new WaitForSeconds(1f);
-        paymentPanel.SetActive(false);
+
+        // Hide UI first
+        if (paymentPanel != null) paymentPanel.SetActive(false);
 
         if (currentPaymentType == PaymentType.Frame && frameAfterPayment != null)
         {
-            frameManager?.ContinueAfterPayment(frameAfterPayment);
-            //PhotoShootingManager.Instance?.StartShooting(frameAfterPayment);
-            PhotoBoothFrameManager.Instance.ContinueAfterPayment(frameAfterPayment);
+            var frameToContinue = frameAfterPayment;
+            ResetPaymentState();
+            frameManager?.ContinueAfterPayment(frameToContinue);
         }
-        else if (currentPaymentType == PaymentType.Gacha) gatchaManager?.ContinueGachaAfterPayment(pendingGachaButtonIndex);
+        else if (currentPaymentType == PaymentType.Gacha)
+        {
+            // Set the gacha flow flag BEFORE clearing payment state
+            isInGachaFlow = true;
 
-        ResetPaymentState();
+            string boothIdToUse = currentBoothId;
+            ResetPaymentState();
 
+            Debug.Log("✅ Payment complete for gacha - gacha flow flag SET");
+
+            if (!string.IsNullOrEmpty(boothIdToUse))
+            {
+                gatchaManager?.SetBoothID(boothIdToUse);
+                gatchaManager?.PlayGatchaAnimationAfterPayment();
+            }
+        }
+        else
+        {
+            ResetPaymentState();
+        }
 
         CloseWebSocketAsync();
     }
@@ -317,7 +367,6 @@ public class PaymentManager : MonoBehaviour
 
     private void OnPaymentFailed(string message)
     {
-
         // LOG: Payment failed
         LoggingManager.Instance?.LogPayment(
             orderId: currentOrderId,
@@ -332,7 +381,6 @@ public class PaymentManager : MonoBehaviour
         Debug.LogWarning("❌ Payment Failed: " + message);
         StartCoroutine(AutoClosePanel());
 
-
         CloseWebSocketAsync();
     }
 
@@ -340,41 +388,42 @@ public class PaymentManager : MonoBehaviour
     private IEnumerator AutoClosePanel()
     {
         yield return new WaitForSeconds(3f);
-        paymentPanel.SetActive(false);
+        if (paymentPanel != null) paymentPanel.SetActive(false);
         ResetPaymentState();
     }
 
     public void OnCancelPayment()
     {
         Debug.Log("❌ Payment cancelled by user");
-        paymentPanel.SetActive(false);
+        if (paymentPanel != null) paymentPanel.SetActive(false);
         ResetPaymentState();
-
-
         CloseWebSocketAsync();
     }
 
-    private void ResetPaymentState()
+    // Made public so other managers (like GatchaManager) can ensure state is cleared when needed
+    public void ResetPaymentState()
     {
         currentBoothId = null;
         currentPrice = 0f;
         pendingGachaButtonIndex = -1;
         frameAfterPayment = null;
         currentOrderId = null;
+        currentPaymentType = PaymentType.None;
     }
     #endregion
 
-    #region Data Classes  
+    #region Data Classes
     [Serializable] private class PaymentInitiateResponse { public bool success; public string order_id; public string payment_id; public string start_url; }
     [Serializable] private class CallbackResponse { public bool success; public string message; public string order_id; }
     #endregion
 
-    #region Pusher helper classes  
+    #region Pusher helper classes
     private class PusherSubscribeEvent { [JsonProperty("event")] public string Event { get; set; } public SubscribeData data; }
     private class SubscribeData { public string channel; }
     #endregion
 
     private async void OnApplicationQuit() => await CloseWebSocketAsync();
-
-
 }
+
+
+

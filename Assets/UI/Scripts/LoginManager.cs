@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Collections;
 using System.Text;
-using System.Threading.Tasks;  // Required for Task
+using System.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.UI;
 using UnityEngine.Networking;
@@ -15,14 +15,13 @@ using System.Security.Cryptography.X509Certificates;
 #endif
 
 public class LoginManager : MonoBehaviour
-{ 
-
+{
     public static LoginManager Instance;
 
     [Header("API Config")]
     public string baseUrl = "https://photo-stg-api.chvps3.aozora-okinawa.com";
     public int ttlSeconds = 160;
-    public string boothKey = "boothkey123"; // Reverb / Pusher App Key
+    public string boothKey = "boothkey123";
 
     [Header("WebSocket Config")]
     public bool useSecureWebSocket = true;
@@ -157,7 +156,7 @@ public class LoginManager : MonoBehaviour
     }
 
     // =======================================================================
-    // WEBSOCKET (FULLY FIXED + AWAITABLE CLOSE)
+    // WEBSOCKET
     // =======================================================================
     private async void ConnectWebSocket()
     {
@@ -170,7 +169,7 @@ public class LoginManager : MonoBehaviour
         string protocol = useSecureWebSocket ? "wss" : "ws";
         string wsUrl = $"{protocol}://photo-stg-api.chvps3.aozora-okinawa.com/app/{boothKey}";
 
-        await CloseWebSocketAsync(); // Ensure old connection is closed
+        await CloseWebSocketAsync();
 
         ws = new WebSocket(wsUrl);
 
@@ -251,7 +250,7 @@ public class LoginManager : MonoBehaviour
                 PlayerPrefs.Save();
 
                 ActivateFrameSelection(isGuest: false);
-                CloseWebSocketAsync(); // Fire and forget (safe)
+                CloseWebSocketAsync();
             }
         }
         catch (Exception e)
@@ -260,9 +259,6 @@ public class LoginManager : MonoBehaviour
         }
     }
 
-    // =======================================================================
-    // CLEAN AWAITABLE WEBSOCKET CLOSE (THE FIX YOU NEEDED)
-    // =======================================================================
     private async Task CloseWebSocketAsync()
     {
         if (ws == null) return;
@@ -284,7 +280,6 @@ public class LoginManager : MonoBehaviour
         isWebSocketConnected = false;
     }
 
-    // Backward compatible method
     private async void CloseWebSocket()
     {
         await CloseWebSocketAsync();
@@ -314,14 +309,25 @@ public class LoginManager : MonoBehaviour
         panelTimeoutRoutine = StartCoroutine(FramePanelAutoClose());
     }
 
+    // =======================================================================
+    // FIXED: Don't show QR panel on timeout, just close frame panel
+    // =======================================================================
     IEnumerator FramePanelAutoClose()
     {
         while (frameSelectionPanel.activeSelf)
         {
             if (Time.time - lastActivityTime >= framePanelTimeoutSeconds)
             {
+                // ONLY close frame panel, don't open QR panel
                 frameSelectionPanel.SetActive(false);
-                qrPanel.SetActive(true);
+
+                // Clear user session data on timeout
+                PlayerPrefs.DeleteKey("user_id");
+                PlayerPrefs.DeleteKey("user_name");
+                PlayerPrefs.DeleteKey("session_id");
+                PlayerPrefs.Save();
+
+                Debug.Log("Frame selection timed out - session cleared");
                 yield break;
             }
             yield return null;
@@ -329,12 +335,12 @@ public class LoginManager : MonoBehaviour
     }
 
     // =======================================================================
-    // APPLICATION QUIT – NOW ACTUALLY WAITS FOR WEBSOCKET CLOSE
+    // APPLICATION QUIT
     // =======================================================================
     private async void OnApplicationQuit()
     {
         await CloseWebSocketAsync();
-        await Task.Delay(100); // Let OS cleanup
+        await Task.Delay(100);
     }
 
     // =======================================================================

@@ -114,10 +114,25 @@ public class FrameAsset
     public string path;
 }
 
+// ============================================================
+// UPDATED FrameData - ADDED my_frames SUPPORT
+// ============================================================
 [System.Serializable]
 public class FrameData
 {
     public List<Frame> frames;
+    public List<Frame> my_frames;      // ADD THIS - for purchased/owned frames
+    public FrameCounts counts;         // ADD THIS - for frame counts
+    public int my_frames_count;        // ADD THIS - count of user's frames
+}
+
+// ADD THIS NEW CLASS
+[System.Serializable]
+public class FrameCounts
+{
+    public int @default;
+    public int recommended;
+    public int gacha;
 }
 
 [System.Serializable]

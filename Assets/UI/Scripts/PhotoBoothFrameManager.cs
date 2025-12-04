@@ -149,15 +149,16 @@ public class PhotoBoothFrameManager : MonoBehaviour
         string url = apiBaseURL + "api/photobooth/frames";
 
         var parameters = new List<string>
-        {
-            "booth_id=" + UnityWebRequest.EscapeURL(boothID),
-            "assignment_type=" + currentCategory
-        };
+    {
+        "booth_id=" + UnityWebRequest.EscapeURL(boothID),
+        "assignment_type=" + currentCategory
+    };
 
         // MYFRAME: Add user_id filter if logged in
         if (currentCategory == "myframe")
         {
             string userId = PlayerPrefs.GetString("user_id", "");
+
             if (!string.IsNullOrEmpty(userId))
             {
                 parameters.Add("user_id=" + UnityWebRequest.EscapeURL(userId));
@@ -185,8 +186,23 @@ public class PhotoBoothFrameManager : MonoBehaviour
                 {
                     string json = request.downloadHandler.text;
                     cachedResponse = JsonUtility.FromJson<FrameResponse>(json);
+
+                    // **FIX: Use my_frames for myframe category**
+                    List<Frame> framesToDisplay = null;
+
+                    if (currentCategory == "myframe")
+                    {
+                        // Use my_frames field for purchased/owned frames
+                        framesToDisplay = cachedResponse?.data?.my_frames;
+                    }
+                    else
+                    {
+                        // Use regular frames field for other categories
+                        framesToDisplay = cachedResponse?.data?.frames;
+                    }
+
                     FrameCacheManager.SaveJSON(json, currentCategory);
-                    DisplayFrames(cachedResponse.data.frames);
+                    DisplayFrames(framesToDisplay);
                 }
                 else
                 {
@@ -203,17 +219,24 @@ public class PhotoBoothFrameManager : MonoBehaviour
         isFetching = false;
     }
 
-    private IEnumerator LoadFramesFromCache(string category)
-    {
-        if (!FrameCacheManager.HasCachedData(category)) yield break;
 
-        string json = FrameCacheManager.LoadCachedJSON(category);
-        if (string.IsNullOrEmpty(json)) yield break;
+private IEnumerator LoadFramesFromCache(string category)
+{
+    if (!FrameCacheManager.HasCachedData(category)) yield break;
 
-        cachedResponse = JsonUtility.FromJson<FrameResponse>(json);
-        if (cachedResponse?.data?.frames != null)
-            DisplayFrames(cachedResponse.data.frames);
-    }
+    string json = FrameCacheManager.LoadCachedJSON(category);
+    if (string.IsNullOrEmpty(json)) yield break;
+
+    cachedResponse = JsonUtility.FromJson<FrameResponse>(json);
+    
+    // Use correct field based on category
+    List<Frame> framesToDisplay = (category == "myframe") 
+        ? cachedResponse?.data?.my_frames 
+        : cachedResponse?.data?.frames;
+    
+    if (framesToDisplay != null)
+        DisplayFrames(framesToDisplay);
+}
 
     private void DisplayFrames(List<Frame> frames)
     {
@@ -354,6 +377,13 @@ public class PhotoBoothFrameManager : MonoBehaviour
                           clickedButton == gatchaButton ? "gacha" :
                           clickedButton == myFrameButton ? "myframe" : "default";
 
+
+        // LOG: Category change
+        LoggingManager.Instance?.LogCustomerClick(
+            buttonName: currentCategory,
+            screenName: "CategorySelection"
+        );
+
         StartCoroutine(FetchFramesFromServer());
     }
 
@@ -376,6 +406,13 @@ public class PhotoBoothFrameManager : MonoBehaviour
 
         currentSelectedFrame = item;
         currentSelectedFrame?.Select();
+
+        //LOG: Frame Selected
+        LoggingManager.Instance?.LogCustomerClick(
+       buttonName: "FrameSelection",
+       screenName: "FrameManager",
+       frameId: item.frameData.frame_id
+   );
     }
 
     public FrameItem GetSelectedFrameItem() => currentSelectedFrame;
@@ -408,22 +445,32 @@ public class PhotoBoothFrameManager : MonoBehaviour
     // ==================================================================
     // YOUR EXISTING METHODS (Payment, Gacha, Shooting) – UNCHANGED
     // ==================================================================
+
     public void OnDecideButtonClicked()
     {
         FrameItem selectedItem = GetSelectedFrameItem();
         if (selectedItem == null)
         {
-            Debug.LogWarning("No frame selected!");
-            return; // stop here if nothing is selected
+            Debug.LogWarning("❌ No frame selected!");
+            return;
         }
 
+        Debug.Log($"✅ Decide button clicked with frame: {selectedItem.frameData.frame_id}");
+
+        // CRITICAL FIX: Check gacha flow flag
+        if (PaymentManager.Instance != null && PaymentManager.Instance.IsInGachaFlow())
+        {
+            Debug.Log("✅ In gacha flow - proceeding directly to shooting");
+            ContinueAfterPayment(selectedItem);
+            return;
+        }
+
+        // Normal frame selection flow - check if payment is needed
         bool paymentsEnabled = PlayerPrefs.GetInt("payments_enabled", 0) == 1;
         if (paymentsEnabled && PaymentManager.Instance != null)
         {
-            // Pass the selected frame to the PaymentManager
             string price = PlayerPrefs.GetString("booth_price", "700");
             PaymentManager.Instance.InitiateFramePayment(boothID, selectedItem, price);
-
         }
         else
         {
@@ -431,15 +478,36 @@ public class PhotoBoothFrameManager : MonoBehaviour
         }
     }
 
-
     public void ContinueAfterPayment(FrameItem selectedItem)
     {
+        if (selectedItem == null)
+        {
+            Debug.LogError("❌ ContinueAfterPayment: selectedItem is NULL!");
+            return;
+        }
+
+        Debug.Log($"📸 ContinueAfterPayment for frame: {selectedItem.frameData.frame_id}");
+
         foreach (Transform child in startShootingParent)
             Destroy(child.gameObject);
 
+        if (startShootingPrefab == null)
+        {
+            Debug.LogError("❌ startShootingPrefab is NULL!");
+            return;
+        }
+
         GameObject instance = Instantiate(startShootingPrefab, startShootingParent);
+        instance.SetActive(true);
+
+        Debug.Log("✅ Start shooting prefab instantiated");
+
         Image img = instance.GetComponentInChildren<Image>();
-        if (img != null) img.sprite = selectedItem.frameImg.sprite;
+        if (img != null && selectedItem.frameImg != null)
+        {
+            img.sprite = selectedItem.frameImg.sprite;
+            Debug.Log("✅ Frame thumbnail set");
+        }
 
         Button startButton = instance.GetComponentInChildren<Button>();
         if (startButton != null)
@@ -447,18 +515,35 @@ public class PhotoBoothFrameManager : MonoBehaviour
             startButton.onClick.RemoveAllListeners();
             startButton.onClick.AddListener(() =>
             {
+                Debug.Log("🎬 START SHOOTING BUTTON CLICKED!");
+
+                // Clear gacha flow flag when shooting actually starts
+                if (PaymentManager.Instance != null)
+                {
+                    PaymentManager.Instance.ClearGachaFlowFlag();
+                }
+
                 PhotoShootingManager.Instance?.StartShooting(selectedItem);
                 instance.SetActive(false);
             });
+            Debug.Log("✅ Start button configured");
+        }
+        else
+        {
+            Debug.LogError("❌ Start button not found in prefab!");
         }
 
         string assetUrl = ResolveUrl(selectedItem.frameData.asset_path);
+        Debug.Log($"🔄 Frame asset URL: {assetUrl}");
+
         if (assetCache.TryGetValue(assetUrl, out Texture2D tex))
         {
+            Debug.Log("✅ Frame asset found in cache");
             CapturedPhotosDisplayManager.Instance?.SetFrame(tex);
         }
         else
         {
+            Debug.Log("📥 Downloading frame asset...");
             StartCoroutine(DownloadAndSetFrameForCapture(assetUrl));
         }
     }
