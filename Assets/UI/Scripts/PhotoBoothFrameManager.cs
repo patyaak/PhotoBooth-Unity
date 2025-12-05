@@ -446,7 +446,7 @@ private IEnumerator LoadFramesFromCache(string category)
     // YOUR EXISTING METHODS (Payment, Gacha, Shooting) – UNCHANGED
     // ==================================================================
 
- 
+
     public void OnDecideButtonClicked()
     {
         FrameItem selectedItem = GetSelectedFrameItem();
@@ -466,15 +466,20 @@ private IEnumerator LoadFramesFromCache(string category)
             return;
         }
 
+        // MYFRAME FIX: Skip payment for myframe category
+        if (currentCategory == "myframe")
+        {
+            Debug.Log("✅ MyFrame selected - skipping payment, proceeding directly to shooting");
+            ContinueAfterPayment(selectedItem);
+            return;
+        }
+
         // Normal frame selection flow - check if payment is needed
         bool paymentsEnabled = PlayerPrefs.GetInt("payments_enabled", 0) == 1;
         if (paymentsEnabled && PaymentManager.Instance != null)
         {
             string price = PlayerPrefs.GetString("booth_price", "700");
-
-            // ========== UPDATED: Pass frametype to payment ==========
-            // Map currentCategory to the frametype expected by backend
-            string frameType = currentCategory; // "default", "recommended", "myframe", or "gacha"
+            string frameType = currentCategory;
 
             Debug.Log($"💳 Initiating payment: price={price}, frametype={frameType}, frame_id={selectedItem.frameData.frame_id}");
 
@@ -482,9 +487,8 @@ private IEnumerator LoadFramesFromCache(string category)
                 boothID,
                 selectedItem,
                 price,
-                frameType  // ← Pass the current category as frametype
+                frameType
             );
-            // ========================================================
         }
         else
         {

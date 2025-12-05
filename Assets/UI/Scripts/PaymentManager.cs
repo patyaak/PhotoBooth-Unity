@@ -76,6 +76,13 @@ public class PaymentManager : MonoBehaviour
             return;
         }
 
+        // MYFRAME FIX: Should never reach here, but added as safeguard
+        if (frameType == "myframe")
+        {
+            Debug.LogWarning("⚠️ Payment attempted for myframe - this should be handled before reaching PaymentManager");
+            return;
+        }
+
         if (string.IsNullOrEmpty(boothId) || selectedFrame == null) return;
 
         // LOG: Payment initiated
@@ -87,12 +94,12 @@ public class PaymentManager : MonoBehaviour
             status: "initiated",
             frameId: selectedFrame.frameData.frame_id
         );
-        
+
         currentPaymentType = PaymentType.Frame;
         currentBoothId = boothId;
         currentPrice = float.Parse(price);
         frameAfterPayment = selectedFrame;
-        currentFrameType = frameType; // ← ADD THIS LINE
+        currentFrameType = frameType;
 
         ShowPaymentPanel(currentPrice);
         StartCoroutine(InitiatePaymentRequest());
