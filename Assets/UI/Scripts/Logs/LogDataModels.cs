@@ -57,7 +57,7 @@ public class LogEntry
 public class CustomerClickLog
 {
     public string button_name;         // Which button was clicked
-    public string screen_name;         // Which screen/panel
+    public string screen_name;         // Which screen/pane
     public string frame_id;            // Frame ID if applicable
     public float x_position;           // Click position X
     public float y_position;           // Click position Y

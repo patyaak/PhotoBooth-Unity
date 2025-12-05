@@ -277,10 +277,8 @@ public class GatchaManager : MonoBehaviour
 
         if (!useCache)
         {
-            using (UnityWebRequest request = UnityWebRequest.Get(url))
+            yield return LoggedWebRequest.Get(url, (request) =>
             {
-                yield return request.SendWebRequest();
-
                 if (request.result == UnityWebRequest.Result.Success)
                 {
                     string jsonResponse = request.downloadHandler.text;
@@ -292,13 +290,16 @@ public class GatchaManager : MonoBehaviour
                         if (!gachaFrames.Contains(response.frame))
                             gachaFrames.Insert(0, response.frame);
 
-                        yield return InstantiateFrameOnButton(index, response.frame, Vector3.one, true);
+                        StartCoroutine(InstantiateFrameOnButton(index, response.frame, Vector3.one, true));
                         StartCoroutine(RevealRemainingRandomFrames(index));
-                        yield break;
                     }
                 }
-                else useCache = true;
-            }
+                else
+                {
+                    useCache = true;
+                    StartCoroutine(LoadFromCacheFallback(index));
+                }
+            });
         }
 
         // --- Offline fallback ---
@@ -324,6 +325,27 @@ public class GatchaManager : MonoBehaviour
         Debug.LogWarning("No cached data available for Gacha fallback.");
     }
 
+
+    private IEnumerator LoadFromCacheFallback(int index)
+    {
+        if (FrameCacheManager.HasCachedData("gacha"))
+        {
+            string cachedJson = FrameCacheManager.LoadCachedJSON("gacha");
+            if (!string.IsNullOrEmpty(cachedJson))
+            {
+                FrameResponse cachedResponse = JsonUtility.FromJson<FrameResponse>(cachedJson);
+                if (cachedResponse != null && cachedResponse.data.frames.Count > 0)
+                {
+                    clickedResultFrame = cachedResponse.data.frames[Random.Range(0, cachedResponse.data.frames.Count)];
+                    if (!gachaFrames.Contains(clickedResultFrame))
+                        gachaFrames.Insert(0, clickedResultFrame);
+
+                    yield return InstantiateFrameOnButton(index, clickedResultFrame, Vector3.one, true);
+                    StartCoroutine(RevealRemainingRandomFrames(index));
+                }
+            }
+        }
+    }
     private IEnumerator RevealRemainingRandomFrames(int revealedIndex)
     {
         yield return new WaitForSeconds(0.2f);

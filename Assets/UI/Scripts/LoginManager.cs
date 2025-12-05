@@ -101,15 +101,8 @@ public class LoginManager : MonoBehaviour
         QRRequestData data = new QRRequestData(boothId, ttlSeconds);
         string json = JsonUtility.ToJson(data);
 
-        using (UnityWebRequest request = new UnityWebRequest(url, "POST"))
+        yield return LoggedWebRequest.Post(url, json, (request) =>
         {
-            byte[] body = Encoding.UTF8.GetBytes(json);
-            request.uploadHandler = new UploadHandlerRaw(body);
-            request.downloadHandler = new DownloadHandlerBuffer();
-            request.SetRequestHeader("Content-Type", "application/json");
-
-            yield return request.SendWebRequest();
-
             if (request.result == UnityWebRequest.Result.Success)
             {
                 QRResponse res = JsonUtility.FromJson<QRResponse>(request.downloadHandler.text);
@@ -122,7 +115,7 @@ public class LoginManager : MonoBehaviour
                 Debug.LogError("QR Token Request Failed: " + request.error);
                 Debug.LogError("Response: " + request.downloadHandler.text);
             }
-        }
+        });
     }
 
     IEnumerator AutoRefreshQR()
@@ -249,6 +242,13 @@ public class LoginManager : MonoBehaviour
                 PlayerPrefs.SetString("booth_id", s.booth_id);
                 PlayerPrefs.Save();
 
+                // LOG: User login
+                LoggingManager.Instance?.LogSystemEvent(
+                    message: $"User logged in: {s.user_name}",
+                    severity: LogSeverity.Info,
+                    details: JsonUtility.ToJson(s)
+                );
+
                 ActivateFrameSelection(isGuest: false);
                 CloseWebSocketAsync();
             }
@@ -293,6 +293,13 @@ public class LoginManager : MonoBehaviour
         PlayerPrefs.DeleteKey("user_id");
         PlayerPrefs.DeleteKey("user_name");
         PlayerPrefs.DeleteKey("session_id");
+
+        // LOG: Guest mode
+        LoggingManager.Instance?.LogSystemEvent(
+            message: "Guest mode activated",
+            severity: LogSeverity.Info
+        );
+
         ActivateFrameSelection(isGuest: true);
     }
 

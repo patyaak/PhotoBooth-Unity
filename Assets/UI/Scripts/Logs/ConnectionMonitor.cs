@@ -25,16 +25,23 @@ public class ConnectionMonitor : MonoBehaviour
 
     private void CheckConnection()
     {
-        NetworkReachability currentReachability = Application.internetReachability;
+        NetworkReachability current = Application.internetReachability;
 
-        // Only log if connection state changed
-        if (currentReachability != lastReachability || isFirstCheck)
+        if (current != lastReachability)
         {
-            string eventType = DetermineEventType(lastReachability, currentReachability);
-            LogConnectionState(eventType, currentReachability);
+            string connectionType = current == NetworkReachability.NotReachable ? "none" :
+                                   current == NetworkReachability.ReachableViaLocalAreaNetwork ? "wifi" : "mobile";
 
-            lastReachability = currentReachability;
-            isFirstCheck = false;
+            string eventType = current == NetworkReachability.NotReachable ? "disconnected" : "connected";
+
+            LoggingManager.Instance?.LogConnection(
+                connectionType: connectionType,
+                eventType: eventType,
+                endpoint: "system",
+                success: current != NetworkReachability.NotReachable
+            );
+
+            lastReachability = current;
         }
     }
 

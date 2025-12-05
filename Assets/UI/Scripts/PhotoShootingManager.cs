@@ -207,7 +207,12 @@ public class PhotoShootingManager : MonoBehaviour
 
         cameraPreview.gameObject.SetActive(false);
         capturePreview.gameObject.SetActive(true);
-
+        // LOG: Photo captured
+        LoggingManager.Instance?.LogCustomerClick(
+            buttonName: "PhotoCapture",
+            screenName: "ShootingManager",
+            frameId: currentFrameItem?.frameData.frame_id
+        );
         OpenBeautificationForImage(finalCroppedTex);
     }
 

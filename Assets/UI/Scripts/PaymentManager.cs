@@ -33,6 +33,8 @@ public class PaymentManager : MonoBehaviour
 
     private string currentBoothId;
     private float currentPrice;
+
+    private string currentFrameType = "default";
     public PaymentType currentPaymentType { get; private set; } = PaymentType.None;
     private int pendingGachaButtonIndex = -1;
     private FrameItem frameAfterPayment;
@@ -66,7 +68,7 @@ public class PaymentManager : MonoBehaviour
     }
 
     #region Public Methods
-    public void InitiateFramePayment(string boothId, FrameItem selectedFrame, string price)
+    public void InitiateFramePayment(string boothId, FrameItem selectedFrame, string price, string frameType = "default")
     {
         if (gatchaManager != null && gatchaManager.gatchaWin != null && gatchaManager.gatchaWin.activeSelf)
         {
@@ -78,18 +80,19 @@ public class PaymentManager : MonoBehaviour
 
         // LOG: Payment initiated
         LoggingManager.Instance?.LogPayment(
-            orderId: System.Guid.NewGuid().ToString(), // temporary ID
+            orderId: System.Guid.NewGuid().ToString(),
             paymentType: "frame",
             provider: "paypay",
             amount: float.Parse(price),
             status: "initiated",
             frameId: selectedFrame.frameData.frame_id
         );
-
+        
         currentPaymentType = PaymentType.Frame;
         currentBoothId = boothId;
         currentPrice = float.Parse(price);
         frameAfterPayment = selectedFrame;
+        currentFrameType = frameType; // ← ADD THIS LINE
 
         ShowPaymentPanel(currentPrice);
         StartCoroutine(InitiatePaymentRequest());
@@ -103,6 +106,7 @@ public class PaymentManager : MonoBehaviour
         currentBoothId = boothId;
         pendingGachaButtonIndex = buttonIndex;
         currentPrice = float.Parse(price);
+        currentFrameType = "gacha";
 
         ShowPaymentPanel(currentPrice);
         StartCoroutine(InitiatePaymentRequest());
@@ -163,35 +167,30 @@ public class PaymentManager : MonoBehaviour
             amount = currentPrice,
             session_id = sessionId,
             user_id = userId,
-            mode = mode
+            mode = mode,
+            frametype = currentFrameType
         };
 
         string jsonPayload = JsonConvert.SerializeObject(payload);
         Debug.Log("Payment Request Payload: " + jsonPayload);
 
-        using (var request = new UnityEngine.Networking.UnityWebRequest(url, "POST"))
+  
+        yield return LoggedWebRequest.Post(url, jsonPayload, (request) =>
         {
-            byte[] bodyRaw = Encoding.UTF8.GetBytes(jsonPayload);
-            request.uploadHandler = new UnityEngine.Networking.UploadHandlerRaw(bodyRaw);
-            request.downloadHandler = new UnityEngine.Networking.DownloadHandlerBuffer();
-            request.SetRequestHeader("Content-Type", "application/json");
-
-            yield return request.SendWebRequest();
-
             if (request.result != UnityEngine.Networking.UnityWebRequest.Result.Success)
             {
                 OnPaymentFailed($"Payment request error: {request.error}");
-                yield break;
+                return;
             }
 
             PaymentInitiateResponse res;
             try { res = JsonConvert.DeserializeObject<PaymentInitiateResponse>(request.downloadHandler.text); }
-            catch (Exception e) { OnPaymentFailed("Failed to parse payment response: " + e.Message); yield break; }
+            catch (Exception e) { OnPaymentFailed("Failed to parse payment response: " + e.Message); return; }
 
             if (res == null || !res.success || string.IsNullOrEmpty(res.start_url))
             {
                 OnPaymentFailed("Payment initiation failed.");
-                yield break;
+                return;
             }
 
             currentOrderId = res.order_id;
@@ -199,7 +198,7 @@ public class PaymentManager : MonoBehaviour
             Debug.Log(res.start_url);
 
             ConnectWebSocketForPayment(currentOrderId);
-        }
+        });
     }
     #endregion
 
@@ -409,6 +408,7 @@ public class PaymentManager : MonoBehaviour
         frameAfterPayment = null;
         currentOrderId = null;
         currentPaymentType = PaymentType.None;
+        currentFrameType = "default";
     }
     #endregion
 

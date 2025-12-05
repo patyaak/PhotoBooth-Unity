@@ -77,10 +77,8 @@ public class VendorLogin : MonoBehaviour
         string fullURL = $"{apiBaseURL}/api/photobooth/booths/{boothID}";
         Debug.Log($"Fetching booth data from: {fullURL}");
 
-        using (UnityWebRequest request = UnityWebRequest.Get(fullURL))
+        yield return LoggedWebRequest.Get(fullURL, (request) =>
         {
-            yield return request.SendWebRequest();
-
             if (request.result == UnityWebRequest.Result.Success)
             {
                 if (wifiErrorGO != null)
@@ -99,7 +97,7 @@ public class VendorLogin : MonoBehaviour
                 catch (System.Exception ex)
                 {
                     Debug.LogError($"JSON parse error: {ex.Message}");
-                    yield break;
+                    return;
                 }
 
                 if (response != null && response.success && response.data != null && response.data.booth != null)
@@ -123,9 +121,6 @@ public class VendorLogin : MonoBehaviour
                     if (boothPrice != null)
                         boothPrice.text = booth.price;
 
-                    // ============================================================
-                    // MODIFIED: Store booth settings including gacha price and payment flag
-                    // ============================================================
                     PlayerPrefs.SetString("booth_id", booth.booth_id);
                     PlayerPrefs.SetString("booth_price", booth.price);
                     PlayerPrefs.SetString("gacha_price", booth.gacha_price);
@@ -133,6 +128,13 @@ public class VendorLogin : MonoBehaviour
                     PlayerPrefs.Save();
 
                     Debug.Log($"💾 Booth settings saved: ID={booth.booth_id}, Price={booth.price}, Gacha={booth.gacha_price}, Payments={booth.payments_enabled}");
+
+                    // LOG: Booth logged in
+                    LoggingManager.Instance?.LogSystemEvent(
+                        message: $"Booth logged in: {booth.booth_id}",
+                        severity: LogSeverity.Info,
+                        details: JsonUtility.ToJson(booth)
+                    );
 
                     mainAppPanel.SetActive(true);
 
@@ -158,7 +160,7 @@ public class VendorLogin : MonoBehaviour
                 if (wifiErrorGO != null)
                     wifiErrorGO.SetActive(true);
             }
-        }
+        });
     }
 
     void ApplyTheme(Theme theme)
