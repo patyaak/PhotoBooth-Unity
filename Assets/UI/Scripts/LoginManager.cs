@@ -32,6 +32,8 @@ public class LoginManager : MonoBehaviour
     public Button GuestButton;
     public RawImage qrImage;
     public GameObject frameSelectionPanel;
+    public GameObject paymentPanel;
+    public GameObject blockImg;
 
     [Header("Timeout Settings")]
     public float framePanelTimeoutSeconds = 60f;
@@ -45,9 +47,7 @@ public class LoginManager : MonoBehaviour
     private bool isWebSocketConnected = false;
     private float lastActivityTime = 0f;
 
-    // =======================================================================
-    // INITIALIZATION
-    // =======================================================================
+  
     private void Start()
     {
 #if UNITY_STANDALONE || UNITY_EDITOR
@@ -83,9 +83,8 @@ public class LoginManager : MonoBehaviour
         }
     }
 
-    // =======================================================================
+
     // QR GENERATION
-    // =======================================================================
     private void OnGenerateQRClicked()
     {
         qrPanel.SetActive(true);
@@ -148,9 +147,8 @@ public class LoginManager : MonoBehaviour
         qrImage.rectTransform.sizeDelta = new Vector2(400, 400);
     }
 
-    // =======================================================================
     // WEBSOCKET
-    // =======================================================================
+  
     private async void ConnectWebSocket()
     {
         if (string.IsNullOrEmpty(boothKey))
@@ -285,9 +283,7 @@ public class LoginManager : MonoBehaviour
         await CloseWebSocketAsync();
     }
 
-    // =======================================================================
     // UI & FRAME SELECTION
-    // =======================================================================
     public void OnGuestBtnClick()
     {
         PlayerPrefs.DeleteKey("user_id");
@@ -316,9 +312,9 @@ public class LoginManager : MonoBehaviour
         panelTimeoutRoutine = StartCoroutine(FramePanelAutoClose());
     }
 
-    // =======================================================================
+
     // FIXED: Don't show QR panel on timeout, just close frame panel
-    // =======================================================================
+
     IEnumerator FramePanelAutoClose()
     {
         while (frameSelectionPanel.activeSelf)
@@ -327,6 +323,7 @@ public class LoginManager : MonoBehaviour
             {
                 // ONLY close frame panel, don't open QR panel
                 frameSelectionPanel.SetActive(false);
+                paymentPanel.SetActive(false);
 
                 // Clear user session data on timeout
                 PlayerPrefs.DeleteKey("user_id");
@@ -341,18 +338,16 @@ public class LoginManager : MonoBehaviour
         }
     }
 
-    // =======================================================================
+    
     // APPLICATION QUIT
-    // =======================================================================
     private async void OnApplicationQuit()
     {
         await CloseWebSocketAsync();
         await Task.Delay(100);
     }
 
-    // =======================================================================
+  
     // SERIALIZABLE CLASSES
-    // =======================================================================
     [Serializable] public class QRRequestData { public string booth_id; public int ttl_seconds; public QRRequestData(string id, int ttl) { booth_id = id; ttl_seconds = ttl; } }
     [Serializable] public class QRResponse { public bool success; public QRData data; }
     [Serializable] public class QRData { public string token; public string token_id; public string expires_at; public string booth_id; }

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using Mediapipe.Unity.Tutorial;
 using TMPro;
 using UnityEngine;
+using UnityEngine.Networking;
 using UnityEngine.UI;
 
 public class PhotoShootingManager : MonoBehaviour
@@ -10,6 +11,9 @@ public class PhotoShootingManager : MonoBehaviour
     public static PhotoShootingManager Instance;
 
     public UiController uiController;
+
+    [Header("API")]
+    public string apiBaseURL = "http://photo-stg-api.chvps3.aozora-okinawa.com/";
 
     [Header("Panels")]
     public GameObject photoShootPanel;
@@ -320,7 +324,7 @@ public class PhotoShootingManager : MonoBehaviour
 
         GameObject frameObj = Instantiate(displayManager.frameDisplayPrefab, frameParent);
         frameObj.SetActive(true);
-        instantiatedFrameObject = frameObj; // Store reference for printing
+        instantiatedFrameObject = frameObj;
 
         Texture2D frameTex = null;
         string frameURL = currentFrameItem.frameData.asset_path;
@@ -380,40 +384,72 @@ public class PhotoShootingManager : MonoBehaviour
         if (loadingPanel != null)
             loadingPanel.SetActive(false);
 
-        // ============================================================
-        // NEW: PRINTING INTEGRATION
-        // ============================================================
-
         // Wait for UI to fully render
         yield return new WaitForEndOfFrame();
-        yield return new WaitForEndOfFrame(); // Extra frame for safety
+        yield return new WaitForEndOfFrame();
 
-        // Capture the final composed frame as texture
+        // Capture the final composed frame as texture and save
         finalComposedImageForPrint = CaptureFrameAsTexture(frameObj.transform);
 
         if (finalComposedImageForPrint != null)
         {
-            Debug.Log($"✅ Final composed image captured for printing: {finalComposedImageForPrint.width}x{finalComposedImageForPrint.height}");
+            Debug.Log($"✅ Final composed image captured: {finalComposedImageForPrint.width}x{finalComposedImageForPrint.height}");
 
-            // Auto-print or show print button
-            //if (autoPrintAfterCapture && PrintingManager.Instance != null)
-            //{
-            //    // Auto print immediately
-            //    PrintingManager.Instance.PrintFinalImage(finalComposedImageForPrint);
-            //}
-            //else if (printButton != null && PrintingManager.Instance != null)
-            //{
-            //    // Show print button
-            //    printButton.gameObject.SetActive(true);
-            //    printButton.onClick.RemoveAllListeners();
-            //    printButton.onClick.AddListener(OnPrintButtonClicked);
+            // ============================================================
+            // PHOTO UPLOAD - For ALL logged-in users
+            // ============================================================
 
-            //    Debug.Log("🖨️ Print button activated");
-            //}
+            string userId = PlayerPrefs.GetString("user_id", "");
+            bool isLoggedIn = !string.IsNullOrEmpty(userId);
+
+            if (isLoggedIn)
+            {
+                // Get order_id from PaymentManager (always generated, even if payments disabled)
+                // IMPORTANT: Get it BEFORE it might be cleared and store locally
+                string orderId = PaymentManager.Instance?.currentOrderId ?? "";
+                string orderIdForUpload = orderId; // Store in local variable
+
+                // Get frame_id
+                string frameId = currentFrameItem?.frameData?.frame_id;
+
+                // Get payment_active status
+                bool paymentActive = PlayerPrefs.GetInt("payments_enabled", 0) == 1;
+
+                if (!string.IsNullOrEmpty(frameId))
+                {
+                    Debug.Log($"🚀 Initiating photo upload:");
+                    Debug.Log($"   - User ID: {userId}");
+                    Debug.Log($"   - Order ID: {(string.IsNullOrEmpty(orderIdForUpload) ? "NONE" : orderIdForUpload)}");
+                    Debug.Log($"   - Frame ID: {frameId}");
+                    Debug.Log($"   - Payment Active: {paymentActive}");
+
+                    yield return StartCoroutine(UploadFinalPhoto(
+                        finalComposedImageForPrint,
+                        orderIdForUpload,
+                        frameId,
+                        paymentActive
+                    ));
+
+                    // NOW clear the order_id after upload is complete
+                    if (PaymentManager.Instance != null)
+                    {
+                        PaymentManager.Instance.currentOrderId = null;
+                        Debug.Log("✅ Cleared order_id after photo upload");
+                    }
+                }
+                else
+                {
+                    Debug.LogWarning($"⚠️ Skipping photo upload - no frame_id available");
+                }
+            }
+            else
+            {
+                Debug.Log($"ℹ️ Skipping photo upload - user is in GUEST mode");
+            }
         }
         else
         {
-            Debug.LogError("❌ Failed to capture final image for printing!");
+            Debug.LogError("❌ Failed to capture final image!");
         }
     }
 
@@ -428,20 +464,14 @@ public class PhotoShootingManager : MonoBehaviour
             return;
         }
 
-       //if (PrintingManager.Instance == null)
-       // {
-       //     Debug.LogError("❌ PrintingManager not found in scene!");
-       //     return;
-       // }
-
-       // Debug.Log("🖨️ Print button clicked - sending to PrintingManager");
+        // Debug.Log("🖨️ Print button clicked - sending to PrintingManager");
 
         // Hide print button after clicking
         if (printButton != null)
             printButton.gameObject.SetActive(false);
 
         // Send to PrintingManager for printing
-       // PrintingManager.Instance.PrintFinalImage(finalComposedImageForPrint);
+        // PrintingManager.Instance.PrintFinalImage(finalComposedImageForPrint);
     }
 
     // ============================================================
@@ -664,5 +694,77 @@ public class PhotoShootingManager : MonoBehaviour
         croppedTex.SetPixels(pixels);
         croppedTex.Apply();
         return croppedTex;
+    }
+
+    private IEnumerator UploadFinalPhoto(Texture2D photoTexture, string orderId, string frameId, bool paymentActive)
+    {
+        if (photoTexture == null)
+        {
+            Debug.LogError("❌ No photo texture to upload!");
+            yield break;
+        }
+
+        if (string.IsNullOrEmpty(frameId))
+        {
+            Debug.LogError("❌ No frame_id available!");
+            yield break;
+        }
+
+        string url = $"{apiBaseURL}api/order/upload-photo";
+
+        // Convert texture to PNG bytes
+        byte[] photoBytes = photoTexture.EncodeToPNG();
+
+        Debug.Log($"📤 Uploading photo to {url}");
+        Debug.Log($"   - order_id: '{orderId}' (IsNull: {orderId == null}, IsEmpty: {string.IsNullOrEmpty(orderId)}, Length: {orderId?.Length ?? 0})");
+        Debug.Log($"   - frame_id: {frameId}");
+        Debug.Log($"   - payment_active: {paymentActive}");
+        Debug.Log($"   - photo size: {photoBytes.Length} bytes ({photoTexture.width}x{photoTexture.height})");
+
+        // Create multipart form data using WWWForm
+        WWWForm formData = new WWWForm();
+
+        // ALWAYS add order_id field (send empty string if not available)
+        string orderIdToSend = string.IsNullOrEmpty(orderId) ? "" : orderId;
+        formData.AddField("order_id", orderIdToSend);
+        Debug.Log($"   - Adding order_id to form: '{orderIdToSend}' (isEmpty: {string.IsNullOrEmpty(orderIdToSend)})");
+
+        formData.AddField("frame_id", frameId);
+        formData.AddField("payment_active", paymentActive.ToString().ToLower());
+        formData.AddBinaryData("photo", photoBytes, "photo.png", "image/png");
+
+        using (UnityWebRequest request = UnityWebRequest.Post(url, formData))
+        {
+            request.timeout = 30;
+
+            yield return request.SendWebRequest();
+
+            if (request.result == UnityWebRequest.Result.Success)
+            {
+                Debug.Log("✅ Photo uploaded successfully!");
+                Debug.Log($"Response: {request.downloadHandler.text}");
+
+                LoggingManager.Instance?.LogCustomerClick(
+                    buttonName: "PhotoUploadSuccess",
+                    screenName: "ShootingManager",
+                    frameId: frameId
+                );
+            }
+            else
+            {
+                Debug.LogError($"❌ Photo upload failed: {request.error}");
+                Debug.LogError($"Response Code: {request.responseCode}");
+                if (!string.IsNullOrEmpty(request.downloadHandler?.text))
+                {
+                    Debug.LogError($"Response Body: {request.downloadHandler.text}");
+                }
+
+                LoggingManager.Instance?.LogCustomerClick(
+                    buttonName: "PhotoUploadFailed",
+                    screenName: "ShootingManager",
+                    frameId: frameId
+                );
+            }
+        }
     }
 }

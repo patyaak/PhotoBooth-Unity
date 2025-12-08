@@ -129,6 +129,15 @@ public class VendorLogin : MonoBehaviour
 
                     Debug.Log($"💾 Booth settings saved: ID={booth.booth_id}, Price={booth.price}, Gacha={booth.gacha_price}, Payments={booth.payments_enabled}");
 
+                    bool loginRequired = booth.login_required;
+
+                    var loginManager = FindAnyObjectByType<LoginManager>();
+                    if (loginManager != null)
+                    {
+                        loginManager.generateQRButton.gameObject.SetActive (loginRequired);
+                        
+                    }
+
                     // LOG: Booth logged in
                     LoggingManager.Instance?.LogSystemEvent(
                         message: $"Booth logged in: {booth.booth_id}",
