@@ -175,7 +175,6 @@ public class PaymentManager : MonoBehaviour
         }
 
         string url = $"{apiBaseURL}api/booths/{currentBoothId}/payment/initiate";
-
         string sessionId = PlayerPrefs.GetString("session_id", "");
         string userId = PlayerPrefs.GetString("user_id", "");
         string mode = string.IsNullOrEmpty(userId) ? "guest" : "user";
@@ -197,7 +196,7 @@ public class PaymentManager : MonoBehaviour
 
         yield return LoggedWebRequest.Post(url, jsonPayload, (request) =>
         {
-            if (request.result != UnityEngine.Networking.UnityWebRequest.Result.Success)
+            if (request.result != UnityWebRequest.Result.Success)
             {
                 OnPaymentFailed($"Payment request error: {request.error}");
                 return;
@@ -207,23 +206,29 @@ public class PaymentManager : MonoBehaviour
             try { res = JsonConvert.DeserializeObject<PaymentInitiateResponse>(request.downloadHandler.text); }
             catch (Exception e) { OnPaymentFailed("Failed to parse payment response: " + e.Message); return; }
 
-            if (res == null || !res.success || string.IsNullOrEmpty(res.start_url))
+            if (res == null || !res.success || string.IsNullOrEmpty(res.order_id))
             {
                 OnPaymentFailed("Payment initiation failed.");
                 return;
             }
 
             currentOrderId = res.order_id;
-            Debug.Log($"✅ Order ID received and stored: {currentOrderId}");
+            Debug.Log($"✅ Order ID received: {currentOrderId}");
 
             if (paymentActive && !string.IsNullOrEmpty(res.start_url))
             {
                 GenerateQRCode(res.start_url);
-                Debug.Log(res.start_url);
                 ConnectWebSocketForPayment(currentOrderId);
+            }
+            else
+            {
+                // Payment OFF → proceed immediately
+                Debug.Log("💡 Payment OFF → skipping QR/WS, continuing after order_id generation");
+                frameManager?.ContinueAfterPayment(frameAfterPayment);
             }
         });
     }
+
     #endregion
 
     #region QR Code
@@ -436,6 +441,45 @@ public class PaymentManager : MonoBehaviour
 
         Debug.Log($"ℹ️ Payment state reset (order_id preserved: {currentOrderId})");
     }
+
+
+    public void InitiateFramePaymentForDecide(string boothId, FrameItem selectedFrame, string price, string frameType = "default")
+    {
+        if (string.IsNullOrEmpty(boothId) || selectedFrame == null) return;
+
+        currentFrameId = selectedFrame.frameData.frame_id;
+        currentFrameType = frameType;
+        frameAfterPayment = selectedFrame;
+
+        currentPaymentType = PaymentType.Frame;
+        currentBoothId = boothId;
+        currentPrice = float.Parse(price);
+
+        int paymentsEnabledInt = PlayerPrefs.GetInt("payments_enabled", 0);
+        bool paymentsEnabled = paymentsEnabledInt == 1;
+
+        // ✅ Skip payment panel for myframe
+        if (frameType == "myframe")
+        {
+            paymentActive = false;
+            Debug.Log("💡 MyFrame selected - skipping payment panel");
+        }
+        else if (paymentsEnabled)
+        {
+            paymentActive = true;
+            ShowPaymentPanel(currentPrice);
+        }
+        else
+        {
+            paymentActive = false;
+            Debug.Log("💡 Payment is OFF - initiating order_id generation only");
+        }
+
+        // Hit backend API for payment initiation (even if payment is OFF)
+        StartCoroutine(InitiatePaymentRequest());
+    }
+
+
     #endregion
 
     #region Data Classes

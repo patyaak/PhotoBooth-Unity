@@ -220,23 +220,23 @@ public class PhotoBoothFrameManager : MonoBehaviour
     }
 
 
-private IEnumerator LoadFramesFromCache(string category)
-{
-    if (!FrameCacheManager.HasCachedData(category)) yield break;
+    private IEnumerator LoadFramesFromCache(string category)
+    {
+        if (!FrameCacheManager.HasCachedData(category)) yield break;
 
-    string json = FrameCacheManager.LoadCachedJSON(category);
-    if (string.IsNullOrEmpty(json)) yield break;
+        string json = FrameCacheManager.LoadCachedJSON(category);
+        if (string.IsNullOrEmpty(json)) yield break;
 
-    cachedResponse = JsonUtility.FromJson<FrameResponse>(json);
-    
-    // Use correct field based on category
-    List<Frame> framesToDisplay = (category == "myframe") 
-        ? cachedResponse?.data?.my_frames 
-        : cachedResponse?.data?.frames;
-    
-    if (framesToDisplay != null)
-        DisplayFrames(framesToDisplay);
-}
+        cachedResponse = JsonUtility.FromJson<FrameResponse>(json);
+
+        // Use correct field based on category
+        List<Frame> framesToDisplay = (category == "myframe")
+            ? cachedResponse?.data?.my_frames
+            : cachedResponse?.data?.frames;
+
+        if (framesToDisplay != null)
+            DisplayFrames(framesToDisplay);
+    }
 
     private void DisplayFrames(List<Frame> frames)
     {
@@ -442,10 +442,6 @@ private IEnumerator LoadFramesFromCache(string category)
         currentSelectedFrame = null;
     }
 
-    // ==================================================================
-    // YOUR EXISTING METHODS (Payment, Gacha, Shooting) – UNCHANGED
-    // ==================================================================
-
 
     public void OnDecideButtonClicked()
     {
@@ -458,45 +454,18 @@ private IEnumerator LoadFramesFromCache(string category)
 
         Debug.Log($"✅ Decide button clicked with frame: {selectedItem.frameData.frame_id}");
 
-        // CRITICAL FIX: Check gacha flow flag
-        if (PaymentManager.Instance != null && PaymentManager.Instance.IsInGachaFlow())
-        {
-            Debug.Log("✅ In gacha flow - proceeding directly to shooting");
-            ContinueAfterPayment(selectedItem);
-            return;
-        }
-
-        // MYFRAME FIX: Skip payment for myframe category
-        if (currentCategory == "myframe")
-        {
-            Debug.Log("✅ MyFrame selected - skipping payment, proceeding directly to shooting");
-            ContinueAfterPayment(selectedItem);
-            return;
-        }
-
-        // Normal frame selection flow - check if payment is needed
-        bool paymentsEnabled = PlayerPrefs.GetInt("payments_enabled", 0) == 1;
-        if (paymentsEnabled && PaymentManager.Instance != null)
-        {
-            string price = PlayerPrefs.GetString("booth_price", "700");
-            string frameType = currentCategory;
-
-            Debug.Log($"💳 Initiating payment: price={price}, frametype={frameType}, frame_id={selectedItem.frameData.frame_id}");
-
-            PaymentManager.Instance.InitiateFramePayment(
-                boothID,
-                selectedItem,
-                price,
-                frameType
-            );
-        }
-        else
-        {
-            ContinueAfterPayment(selectedItem);
-        }
+        // Use PaymentManager to get an order ID even if payment is OFF
+        PaymentManager.Instance.InitiateFramePaymentForDecide(
+            boothId: PaymentManager.Instance.frameManager.boothID,
+            selectedFrame: selectedItem,
+            price: PlayerPrefs.GetString("booth_price", "700"),
+            frameType: currentCategory
+        );
     }
 
-    public void ContinueAfterPayment(FrameItem selectedItem)
+
+
+    public void ContinueAfterPayment(FrameItem selectedItem, string orderID = null)
     {
         if (selectedItem == null)
         {
@@ -504,8 +473,9 @@ private IEnumerator LoadFramesFromCache(string category)
             return;
         }
 
-        Debug.Log($"📸 ContinueAfterPayment for frame: {selectedItem.frameData.frame_id}");
+        Debug.Log($"📸 ContinueAfterPayment for frame: {selectedItem.frameData.frame_id}, orderID: {orderID}");
 
+        // Clear previous shooting prefab
         foreach (Transform child in startShootingParent)
             Destroy(child.gameObject);
 
@@ -517,8 +487,6 @@ private IEnumerator LoadFramesFromCache(string category)
 
         GameObject instance = Instantiate(startShootingPrefab, startShootingParent);
         instance.SetActive(true);
-
-        Debug.Log("✅ Start shooting prefab instantiated");
 
         Image img = instance.GetComponentInChildren<Image>();
         if (img != null && selectedItem.frameImg != null)
@@ -536,12 +504,10 @@ private IEnumerator LoadFramesFromCache(string category)
                 Debug.Log("🎬 START SHOOTING BUTTON CLICKED!");
 
                 // Clear gacha flow flag when shooting actually starts
-                if (PaymentManager.Instance != null)
-                {
-                    PaymentManager.Instance.ClearGachaFlowFlag();
-                }
+                PaymentManager.Instance?.ClearGachaFlowFlag();
 
-                PhotoShootingManager.Instance?.StartShooting(selectedItem);
+                // Pass orderID to shooting manager if needed
+                PhotoShootingManager.Instance?.StartShooting(selectedItem, orderID);
                 instance.SetActive(false);
             });
             Debug.Log("✅ Start button configured");
@@ -565,6 +531,7 @@ private IEnumerator LoadFramesFromCache(string category)
             StartCoroutine(DownloadAndSetFrameForCapture(assetUrl));
         }
     }
+
 
     private IEnumerator DownloadAndSetFrameForCapture(string url)
     {
@@ -609,4 +576,11 @@ private IEnumerator LoadFramesFromCache(string category)
         }
         target.localScale = targetScale;
     }
+
+    private string GenerateOrderID()
+    {
+        // Example: "ORDER" + timestamp + random 4 digits
+        return "ORDER-" + System.DateTime.UtcNow.ToString("yyyyMMddHHmmss") + "-" + Random.Range(1000, 9999);
+    }
+
 }

@@ -75,9 +75,16 @@ public class PhotoShootingManager : MonoBehaviour
         }
     }
 
-    public void StartShooting(FrameItem selectedFrame)
+    public void StartShooting(FrameItem selectedFrame, string orderID = null)
     {
         if (selectedFrame == null) return;
+
+        // Log or store the order ID if needed
+        if (!string.IsNullOrEmpty(orderID))
+        {
+            Debug.Log($"🎫 Starting shooting with Order ID: {orderID}");
+            //currentOrderID = orderID; // Optional: store in a class variable if you want to use later
+        }
 
         currentFrameItem = selectedFrame;
         placeholders.Clear();
@@ -98,6 +105,7 @@ public class PhotoShootingManager : MonoBehaviour
         StartWebcam();
         StartCoroutine(StartCountdownAndCapture());
     }
+
 
     private void StartWebcam()
     {
