@@ -346,7 +346,7 @@ public class PhotoBoothFrameManager : MonoBehaviour
         });
     }
 
-    private string ResolveUrl(string path)
+    public string ResolveUrl(string path)
     {
         if (string.IsNullOrEmpty(path)) return path;
         if (path.StartsWith("http")) return path;

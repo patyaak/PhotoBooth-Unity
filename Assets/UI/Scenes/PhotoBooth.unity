@@ -12472,6 +12472,27 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 29f60cf34fcad014abe3f8ca57f4da62, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  printingPanel: {fileID: 0}
+  errorPanel: {fileID: 0}
+  statusText: {fileID: 0}
+  errorText: {fileID: 0}
+  progressBar: {fileID: 0}
+  retryButton: {fileID: 0}
+  previewImage: {fileID: 0}
+  printerName: Brother DCP-L2540DW series
+  paperSize: 0
+  printWidth: 1200
+  printHeight: 1600
+  printCopies: 1
+  autoCloseAfterPrint: 1
+  autoCloseDelay: 2
+  showRealtimeUSBErrors: 1
+  usbCheckIntervalWhenIdle: 3
+  usbCheckIntervalDuringPrint: 0.5
+  checkPrinterOnStart: 1
+  startupErrorPanel: {fileID: 0}
+  startupErrorText: {fileID: 0}
+  startupRetryButton: {fileID: 0}
 --- !u!1 &1990448606
 GameObject:
   m_ObjectHideFlags: 0
@@ -13841,7 +13862,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 0
+  m_IsActive: 1
 --- !u!222 &208923713879497599
 CanvasRenderer:
   m_ObjectHideFlags: 0
@@ -14519,9 +14540,9 @@ RectTransform:
   - {fileID: 6016970784628349026}
   m_Father: {fileID: 7250021516505297247}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
-  m_AnchorMin: {x: 0, y: 1}
-  m_AnchorMax: {x: 0, y: 1}
-  m_AnchoredPosition: {x: 900, y: -275}
+  m_AnchorMin: {x: 0, y: 0}
+  m_AnchorMax: {x: 0, y: 0}
+  m_AnchoredPosition: {x: 0, y: 0}
   m_SizeDelta: {x: 600, y: 550}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!1 &1336346919716419643
@@ -18665,7 +18686,7 @@ RectTransform:
   m_AnchorMin: {x: 0.17352085, y: 0.12777779}
   m_AnchorMax: {x: 0.83029175, y: 0.6234074}
   m_AnchoredPosition: {x: 0, y: 0}
-  m_SizeDelta: {x: -61.00013, y: 14.719991}
+  m_SizeDelta: {x: 0, y: 0}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &7250021516505297248
 MonoBehaviour:
@@ -18983,9 +19004,9 @@ RectTransform:
   - {fileID: 1882693399}
   m_Father: {fileID: 7250021516505297247}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
-  m_AnchorMin: {x: 0, y: 1}
-  m_AnchorMax: {x: 0, y: 1}
-  m_AnchoredPosition: {x: 300, y: -275}
+  m_AnchorMin: {x: 0, y: 0}
+  m_AnchorMax: {x: 0, y: 0}
+  m_AnchoredPosition: {x: 0, y: 0}
   m_SizeDelta: {x: 600, y: 550}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!222 &7658744492179329532

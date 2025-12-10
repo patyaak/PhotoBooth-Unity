@@ -1,5 +1,6 @@
 ﻿using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
 using Mediapipe.Unity.Tutorial;
 using TMPro;
 using UnityEngine;
@@ -45,6 +46,9 @@ public class PhotoShootingManager : MonoBehaviour
     public List<Texture2D> capturedPhotos = new List<Texture2D>();
     private List<FrameAsset> placeholders = new List<FrameAsset>();
 
+    private Dictionary<int, Texture2D> photoByIndex = new Dictionary<int, Texture2D>();
+    private List<int> uniqueIndices = new List<int>();
+
     [Header("UI References")]
     public GameObject loadingPanel;
 
@@ -79,24 +83,36 @@ public class PhotoShootingManager : MonoBehaviour
     {
         if (selectedFrame == null) return;
 
-        // Log or store the order ID if needed
-        if (!string.IsNullOrEmpty(orderID))
-        {
-            Debug.Log($"🎫 Starting shooting with Order ID: {orderID}");
-            //currentOrderID = orderID; // Optional: store in a class variable if you want to use later
-        }
-
         currentFrameItem = selectedFrame;
         placeholders.Clear();
+        photoByIndex.Clear();
+        uniqueIndices.Clear();
+
+        // Collect only placeholder assets with valid index (> 0)
         foreach (var asset in selectedFrame.frameData.assets)
-            if (asset.type == "placeholder")
+        {
+            if (asset.type == "placeholder" && asset.placeholder_index > 0)
+            {
                 placeholders.Add(asset);
+            }
+        }
 
-        placeholders.Sort((a, b) => (a.placeholder_index ?? 0).CompareTo(b.placeholder_index ?? 0));
-        totalShots = placeholders.Count > 0 ? placeholders.Count : 1;
+        if (placeholders.Count == 0)
+        {
+            Debug.LogError("No placeholders found! Check if placeholder_index is being deserialized correctly.");
+            return;
+        }
+
+        // Extract unique indices
+        uniqueIndices = placeholders
+            .Select(p => p.placeholder_index)
+            .Distinct()
+            .OrderBy(i => i)
+            .ToList();
+
+        Debug.Log($"Found {placeholders.Count} placeholders with {uniqueIndices.Count} unique indices: [{string.Join(", ", uniqueIndices)}]");
+
         currentShotIndex = 0;
-        capturedPhotos.Clear();
-
         photoShootPanel.SetActive(true);
 
         reshotButton.onClick.RemoveAllListeners();
@@ -132,34 +148,32 @@ public class PhotoShootingManager : MonoBehaviour
         capturePreview.gameObject.SetActive(false);
         cameraPreview.gameObject.SetActive(true);
 
-        // Set aspect ratio if placeholder exists
-        if (currentShotIndex < placeholders.Count)
+        // Get current placeholder index and find a representative placeholder for size
+        int currentIndex = uniqueIndices[currentShotIndex];
+        var repPlaceholder = placeholders.FirstOrDefault(p => p.placeholder_index == currentIndex);
+        if (repPlaceholder == null)
         {
-            var ph = placeholders[currentShotIndex];
-            float phWidth = float.Parse(ph.width);
-            float phHeight = float.Parse(ph.height);
-            float placeholderAspect = phWidth / phHeight;
-
-            SetCameraPreviewAspect(placeholderAspect);
+            Debug.LogError($"No placeholder found with index {currentIndex}");
+            yield break;
         }
 
-        // ====== NEW COUNTDOWN ======
-        timerText.gameObject.SetActive(true);
+        float phWidth = float.Parse(repPlaceholder.width);
+        float phHeight = float.Parse(repPlaceholder.height);
+        float aspect = phWidth / phHeight;
 
+        SetCameraPreviewAspect(aspect);
+
+        timerText.gameObject.SetActive(true);
         for (int i = 3; i > 0; i--)
         {
             timerText.text = i.ToString();
             yield return new WaitForSeconds(1f);
         }
-
-        timerText.text = "";
         timerText.gameObject.SetActive(false);
 
-        // ====== FLASH EFFECT ======
         yield return StartCoroutine(FlashEffect());
 
-        // Capture
-        CapturePhoto();
+        CapturePhoto(currentIndex, phWidth, phHeight);
     }
 
     private IEnumerator FlashEffect()
@@ -188,70 +202,51 @@ public class PhotoShootingManager : MonoBehaviour
 
     private Texture2D finalCroppedTex;
 
-    private void CapturePhoto()
+    private void CapturePhoto(int placeholderIndex, float targetWidth, float targetHeight)
     {
         if (webCamTexture == null) return;
 
-        int width = webCamTexture.width;
-        int height = webCamTexture.height;
+        Texture2D raw = new Texture2D(webCamTexture.width, webCamTexture.height, TextureFormat.RGB24, false);
+        raw.SetPixels(webCamTexture.GetPixels());
+        raw.Apply();
 
-        Texture2D tex = new Texture2D(width, height, TextureFormat.RGB24, false);
-        tex.SetPixels(webCamTexture.GetPixels());
-        tex.Apply();
+        Texture2D cropped = GetCroppedTexture(raw, targetWidth, targetHeight);
+        Destroy(raw);
 
-        float phWidth = 800f;
-        float phHeight = 800f;
-
-        if (currentShotIndex < placeholders.Count)
-        {
-            var ph = placeholders[currentShotIndex];
-            phWidth = float.Parse(ph.width);
-            phHeight = float.Parse(ph.height);
-        }
-
-        finalCroppedTex = GetCroppedTexture(tex, phWidth, phHeight);
-        capturedPhotos.Add(finalCroppedTex);
-
-        capturePreview.sprite = Sprite.Create(finalCroppedTex, new Rect(0, 0, finalCroppedTex.width, finalCroppedTex.height), new Vector2(0.5f, 0.5f));
+        capturePreview.sprite = Sprite.Create(cropped, new Rect(0, 0, cropped.width, cropped.height), Vector2.one * 0.5f);
         capturePreview.preserveAspect = false;
+        capturePreview.gameObject.SetActive(true);
+        cameraPreview.gameObject.SetActive(false);
 
         MatchPreviewSizes();
 
-        cameraPreview.gameObject.SetActive(false);
-        capturePreview.gameObject.SetActive(true);
-        // LOG: Photo captured
-        LoggingManager.Instance?.LogCustomerClick(
-            buttonName: "PhotoCapture",
-            screenName: "ShootingManager",
-            frameId: currentFrameItem?.frameData.frame_id
-        );
-        OpenBeautificationForImage(finalCroppedTex);
+        // Temporarily store cropped photo → will be replaced after beautification
+        photoByIndex[placeholderIndex] = cropped;
+
+        OpenBeautificationForImage(cropped, placeholderIndex, targetWidth, targetHeight);
     }
 
-    public void OpenBeautificationForImage(Texture2D clickedImage)
+    public void OpenBeautificationForImage(Texture2D image, int placeholderIndex, float w, float h)
     {
-        if (clickedImage == null) return;
-
-        float phWidth = 800f;
-        float phHeight = 800f;
-
-        if (currentShotIndex < placeholders.Count)
-        {
-            var ph = placeholders[currentShotIndex];
-            phWidth = float.Parse(ph.width);
-            phHeight = float.Parse(ph.height);
-        }
-
         beautificationPanel.SetActive(true);
-        uiController.OnLoadSingleCaptureImage(clickedImage, currentShotIndex, phWidth, phHeight);
+        uiController.OnLoadSingleCaptureImage(image, placeholderIndex, w, h);
     }
 
     public void OnBeautificationComplete()
     {
         beautificationPanel.SetActive(false);
+
+        // Save final beautified image (UiController already saved it into beautifiedImages)
+        // We just need to map it back using current index
+        int currentIndex = uniqueIndices[currentShotIndex];
+        if (UiController.Instance.beautifiedImages.Count > currentShotIndex)
+        {
+            photoByIndex[currentIndex] = UiController.Instance.beautifiedImages[currentShotIndex];
+        }
+
         currentShotIndex++;
 
-        if (currentShotIndex < totalShots)
+        if (currentShotIndex < uniqueIndices.Count)
         {
             cameraPreview.gameObject.SetActive(true);
             StartCoroutine(StartCountdownAndCapture());
@@ -271,11 +266,8 @@ public class PhotoShootingManager : MonoBehaviour
             webCamTexture = null;
         }
 
-        if (currentFrameItem != null)
-            StartCoroutine(ApplyPhotosWithFrame());
-
+        StartCoroutine(ApplyPhotosWithFrame());
         photoShootPanel.SetActive(false);
-        Debug.Log("📸 Photo shooting finished!");
     }
 
     private void MatchPreviewSizes()
@@ -650,27 +642,29 @@ public class PhotoShootingManager : MonoBehaviour
         return path;
     }
 
- 
-    // REPLACE the entire ApplyPhotosWithFrame method with this updated version:
 
+    // REPLACE the entire ApplyPhotosWithFrame method with this updated version:
     private IEnumerator ApplyPhotosWithFrame()
     {
-        if (loadingPanel != null)
-            loadingPanel.SetActive(true);
+        // Show loading at the beginning
+        if (loadingPanel != null) loadingPanel.SetActive(true);
 
         Transform frameParent = displayManager.frameDisplayParent;
         if (frameParent == null)
         {
-            Debug.LogWarning("Frame parent not assigned!");
+            Debug.LogError("Frame parent not assigned!");
+            if (loadingPanel != null) loadingPanel.SetActive(false);
             yield break;
         }
 
+        // Clear previous frame
         foreach (Transform child in frameParent)
             Destroy(child.gameObject);
 
         if (displayManager.frameDisplayPrefab == null)
         {
             Debug.LogError("Frame prefab missing!");
+            if (loadingPanel != null) loadingPanel.SetActive(false);
             yield break;
         }
 
@@ -678,250 +672,135 @@ public class PhotoShootingManager : MonoBehaviour
         frameObj.SetActive(true);
         instantiatedFrameObject = frameObj;
 
-        Debug.Log($"✅ Instantiated frame prefab: {frameObj.name}");
-
+        // Load frame texture
         Texture2D frameTex = null;
-        string frameURL = currentFrameItem.frameData.asset_path;
-
+        string frameURL = PhotoBoothFrameManager.Instance.ResolveUrl(currentFrameItem.frameData.asset_path);
         if (!string.IsNullOrEmpty(frameURL))
         {
-            yield return FrameCacheManager.DownloadAndCacheTexture(frameURL,
-                tex => frameTex = tex
-            );
+            if (PhotoBoothFrameManager.Instance.assetCache.TryGetValue(frameURL, out var cached))
+                frameTex = cached;
+            else
+                yield return FrameCacheManager.DownloadAndCacheTexture(frameURL, tex => frameTex = tex);
         }
+        if (frameTex == null) frameTex = Texture2D.grayTexture;
 
-        if (frameTex == null)
-            frameTex = currentFrameItem.offlineTexture ?? Texture2D.grayTexture;
-
-        // =================================================================
-        // UPDATED: Find "frame" container (no (Clone) suffix)
-        // =================================================================
+        // Setup container hierarchy
         Transform frameContainer = frameObj.transform.Find("frame");
-
         if (frameContainer == null)
         {
-            Debug.LogWarning("⚠️ 'frame' container not found, creating it...");
-            GameObject frameGO = new GameObject("frame", typeof(RectTransform));
-            frameGO.transform.SetParent(frameObj.transform, false);
-            frameContainer = frameGO.transform;
-
-            RectTransform frameRect = frameContainer.GetComponent<RectTransform>();
-            frameRect.anchorMin = new Vector2(0.5f, 0.5f);
-            frameRect.anchorMax = new Vector2(0.5f, 0.5f);
-            frameRect.pivot = new Vector2(0.5f, 0.5f);
-            frameRect.anchoredPosition = Vector2.zero;
-
-            if (frameTex != null)
-            {
-                frameRect.sizeDelta = new Vector2(frameTex.width, frameTex.height);
-            }
-        }
-        else
-        {
-            Debug.Log($"✅ Found frame container at: {GetFullPath(frameContainer)}");
-
-            // Ensure frame has correct size
-            RectTransform frameRect = frameContainer.GetComponent<RectTransform>();
-            if (frameRect != null && frameTex != null)
-            {
-                frameRect.sizeDelta = new Vector2(frameTex.width, frameTex.height);
-                frameRect.anchoredPosition = Vector2.zero;
-                Debug.Log($"✅ Set frame size to: {frameTex.width}x{frameTex.height}");
-            }
+            GameObject go = new GameObject("frame", typeof(RectTransform));
+            go.transform.SetParent(frameObj.transform, false);
+            frameContainer = go.transform;
+            frameContainer.GetComponent<RectTransform>().sizeDelta = new Vector2(frameTex.width, frameTex.height);
         }
 
-        // =================================================================
-        // Find or create "capturedImages" inside "frame"
-        // =================================================================
         Transform capturedImagesParent = frameContainer.Find("capturedImages");
-
         if (capturedImagesParent == null)
         {
-            Debug.LogWarning("⚠️ capturedImages not found inside frame, creating it...");
-            GameObject capturedImagesGO = new GameObject("capturedImages", typeof(RectTransform));
-            capturedImagesGO.transform.SetParent(frameContainer, false);
-            capturedImagesParent = capturedImagesGO.transform;
-
-            // Set capturedImages to match frame size
-            RectTransform capturedImagesRect = capturedImagesGO.GetComponent<RectTransform>();
-            capturedImagesRect.anchorMin = new Vector2(0.5f, 0.5f);
-            capturedImagesRect.anchorMax = new Vector2(0.5f, 0.5f);
-            capturedImagesRect.pivot = new Vector2(0.5f, 0.5f);
-
-            if (frameTex != null)
-            {
-                capturedImagesRect.sizeDelta = new Vector2(frameTex.width, frameTex.height);
-                capturedImagesRect.anchoredPosition = Vector2.zero;
-                Debug.Log($"✅ Created capturedImages with size: {frameTex.width}x{frameTex.height}");
-            }
-        }
-        else
-        {
-            Debug.Log($"✅ Found capturedImages at: {GetFullPath(capturedImagesParent)}");
-
-            // Ensure capturedImages has correct size
-            RectTransform capturedImagesRect = capturedImagesParent.GetComponent<RectTransform>();
-            if (capturedImagesRect != null && frameTex != null)
-            {
-                capturedImagesRect.sizeDelta = new Vector2(frameTex.width, frameTex.height);
-                capturedImagesRect.anchoredPosition = Vector2.zero;
-                Debug.Log($"✅ Updated capturedImages size to: {frameTex.width}x{frameTex.height}");
-            }
+            GameObject go = new GameObject("capturedImages", typeof(RectTransform));
+            go.transform.SetParent(frameContainer, false);
+            capturedImagesParent = go.transform;
+            var rt = capturedImagesParent.GetComponent<RectTransform>();
+            rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 0.5f);
+            rt.pivot = new Vector2(0.5f, 0.5f);
+            rt.anchoredPosition = Vector2.zero;
+            rt.sizeDelta = new Vector2(frameTex.width, frameTex.height);
         }
 
-        // =================================================================
-        // Add captured photos FIRST to capturedImages (behind frameImg)
-        // =================================================================
-        for (int i = 0; i < UiController.Instance.beautifiedImages.Count && i < placeholders.Count; i++)
+        // Map beautified images correctly using uniqueIndices
+        var photoByIndex = new Dictionary<int, Texture2D>();
+        for (int i = 0; i < UiController.Instance.beautifiedImages.Count; i++)
         {
-            var tex = UiController.Instance.beautifiedImages[i];
-            var ph = placeholders[i];
+            int index = uniqueIndices[i];
+            photoByIndex[index] = UiController.Instance.beautifiedImages[i];
+        }
 
-            GameObject imgObj = new GameObject("CapturedPhoto_" + (i + 1), typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
-            imgObj.transform.SetParent(capturedImagesParent, false);
-
-            Image img = imgObj.GetComponent<Image>();
+        // Place all photos (including duplicates)
+        foreach (var ph in placeholders)
+        {
+            if (ph.placeholder_index <= 0) continue;
+            if (!photoByIndex.TryGetValue(ph.placeholder_index, out Texture2D photo)) continue;
 
             float w = float.Parse(ph.width);
             float h = float.Parse(ph.height);
 
-            img.sprite = CreateCenterCroppedSprite(tex, w, h);
+            GameObject imgObj = new GameObject($"Photo_Index{ph.placeholder_index}", typeof(Image));
+            imgObj.transform.SetParent(capturedImagesParent, false);
+
+            Image img = imgObj.GetComponent<Image>();
+            img.sprite = Sprite.Create(photo, new Rect(0, 0, photo.width, photo.height), Vector2.one * 0.5f);
             img.preserveAspect = false;
 
             RectTransform rt = imgObj.GetComponent<RectTransform>();
-            rt.anchorMin = new Vector2(0.5f, 0.5f);
-            rt.anchorMax = new Vector2(0.5f, 0.5f);
+            rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 0.5f);
             rt.pivot = new Vector2(0.5f, 0.5f);
             rt.sizeDelta = new Vector2(w, h);
             rt.anchoredPosition = new Vector2(ph.x, ph.y);
             rt.localRotation = Quaternion.Euler(0, 0, ph.rotation);
-
-            Debug.Log($"✅ Added CapturedPhoto_{i + 1}: {w}x{h} at ({ph.x}, {ph.y})");
         }
 
-        // =================================================================
-        // Add frameImg as LAST child inside capturedImages (in front of photos)
-        // =================================================================
+        // Add frame image on top
         Transform frameImgChild = capturedImagesParent.Find("frameImg");
         if (frameImgChild == null)
         {
-            GameObject frameImgGO = new GameObject("frameImg", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
-            frameImgGO.transform.SetParent(capturedImagesParent, false);
-            frameImgChild = frameImgGO.transform;
-            Debug.Log("✅ Created frameImg child");
+            GameObject go = new GameObject("frameImg", typeof(Image));
+            go.transform.SetParent(capturedImagesParent, false);
+            frameImgChild = go.transform;
         }
-
-        // Set frameImg as last sibling (in front of all photos)
         frameImgChild.SetAsLastSibling();
 
-        if (frameImgChild != null)
-        {
-            Debug.Log($"✅ Setting up frameImg at: {GetFullPath(frameImgChild)}");
+        Image frameImage = frameImgChild.GetComponent<Image>();
+        frameImage.sprite = Sprite.Create(frameTex, new Rect(0, 0, frameTex.width, frameTex.height), Vector2.one * 0.5f);
+        frameImage.preserveAspect = false;
 
-            Image frameImg = frameImgChild.GetComponent<Image>();
-            frameImg.sprite = Sprite.Create(frameTex, new Rect(0, 0, frameTex.width, frameTex.height), new Vector2(0.5f, 0.5f));
-            frameImg.preserveAspect = false;
+        RectTransform frt = frameImgChild.GetComponent<RectTransform>();
+        frt.anchorMin = frt.anchorMax = new Vector2(0.5f, 0.5f);
+        frt.pivot = new Vector2(0.5f, 0.5f);
+        frt.anchoredPosition = Vector2.zero;
+        frt.sizeDelta = new Vector2(frameTex.width, frameTex.height);
 
-            RectTransform rt = frameImg.GetComponent<RectTransform>();
-            rt.anchorMin = new Vector2(0.5f, 0.5f);
-            rt.anchorMax = new Vector2(0.5f, 0.5f);
-            rt.pivot = new Vector2(0.5f, 0.5f);
-            rt.sizeDelta = new Vector2(frameTex.width, frameTex.height);
-            rt.anchoredPosition = Vector2.zero;
-        }
-
-        if (loadingPanel != null)
-            loadingPanel.SetActive(false);
-
-        // =================================================================
-        // Wait for UI to fully render
-        // =================================================================
+        // === FINAL RENDER & CAPTURE ===
         yield return new WaitForEndOfFrame();
         yield return new WaitForEndOfFrame();
-        yield return new WaitForEndOfFrame();
-
-        // Force canvas update
         Canvas.ForceUpdateCanvases();
-
-        // Wait one more frame after force update
         yield return new WaitForEndOfFrame();
 
-        Debug.Log("🎬 About to capture frame...");
+        // CRITICAL: Hide loading panel BEFORE capture
+        bool wasLoadingActive = loadingPanel != null && loadingPanel.activeSelf;
+        if (wasLoadingActive) loadingPanel.SetActive(false);
 
-        // =================================================================
-        // CAPTURE "capturedImages" - this contains both frame and photos
-        // =================================================================
-        if (capturedImagesParent == null)
-        {
-            Debug.LogError("❌ capturedImages is null!");
-            yield break;
-        }
+        // One extra frame to make sure it's gone
+        yield return new WaitForEndOfFrame();
 
-        Debug.Log($"📍 Capturing from: {GetFullPath(capturedImagesParent)}");
-        Debug.Log($"📍 Object active: {capturedImagesParent.gameObject.activeInHierarchy}");
-        Debug.Log($"📍 Position: {capturedImagesParent.position}");
-
-        RectTransform capturedRect = capturedImagesParent.GetComponent<RectTransform>();
-        if (capturedRect != null)
-        {
-            Debug.Log($"📍 Size: {capturedRect.sizeDelta}");
-        }
-
-        // Capture the capturedImages container (has frame + photos)
+        // NOW CAPTURE THE REAL FRAME
         finalComposedImageForPrint = CaptureFrameAsTexture(capturedImagesParent);
 
+        // Optional: Debug save to see exactly what was captured
+#if UNITY_EDITOR
         if (finalComposedImageForPrint != null)
+            SaveTextureToFile(finalComposedImageForPrint, "DEBUG_FINAL_PHOTO_WITH_FRAME.png");
+#endif
+
+        // Re-enable loading panel during upload
+        if (wasLoadingActive) loadingPanel.SetActive(true);
+
+        // Upload the correct image
+        string userId = PlayerPrefs.GetString("user_id", "");
+        if (!string.IsNullOrEmpty(userId))
         {
-            Debug.Log($"✅ Final composed image captured: {finalComposedImageForPrint.width}x{finalComposedImageForPrint.height}");
+            string orderId = PaymentManager.Instance?.currentOrderId ?? "";
+            string frameId = currentFrameItem.frameData.frame_id;
+            bool paymentActive = PlayerPrefs.GetInt("payments_enabled", 0) == 1;
 
-            // =================================================================
-            // Photo upload section
-            // =================================================================
-            string userId = PlayerPrefs.GetString("user_id", "");
-            bool isLoggedIn = !string.IsNullOrEmpty(userId);
+            yield return StartCoroutine(UploadFinalPhoto(finalComposedImageForPrint, orderId, frameId, paymentActive));
 
-            if (isLoggedIn)
-            {
-                string orderId = PaymentManager.Instance?.currentOrderId ?? "";
-                string orderIdForUpload = orderId;
-                string frameId = currentFrameItem?.frameData?.frame_id;
-                bool paymentActive = PlayerPrefs.GetInt("payments_enabled", 0) == 1;
-
-                if (!string.IsNullOrEmpty(frameId))
-                {
-                    Debug.Log($"🚀 Initiating photo upload:");
-                    Debug.Log($"   - User ID: {userId}");
-                    Debug.Log($"   - Order ID: {(string.IsNullOrEmpty(orderIdForUpload) ? "NONE" : orderIdForUpload)}");
-                    Debug.Log($"   - Frame ID: {frameId}");
-                    Debug.Log($"   - Payment Active: {paymentActive}");
-
-                    yield return StartCoroutine(UploadFinalPhoto(
-                        finalComposedImageForPrint,
-                        orderIdForUpload,
-                        frameId,
-                        paymentActive
-                    ));
-
-                    if (PaymentManager.Instance != null)
-                    {
-                        PaymentManager.Instance.currentOrderId = null;
-                        Debug.Log("✅ Cleared order_id after photo upload");
-                    }
-                }
-                else
-                {
-                    Debug.LogWarning($"⚠️ Skipping photo upload - no frame_id available");
-                }
-            }
-            else
-            {
-                Debug.Log($"ℹ️ Skipping photo upload - user is in GUEST mode");
-            }
+            if (PaymentManager.Instance != null)
+                PaymentManager.Instance.currentOrderId = null;
         }
-        else
-        {
-            Debug.LogError("❌ Failed to capture final image!");
-        }
+
+        // Finally hide loading when everything is done
+        if (loadingPanel != null) loadingPanel.SetActive(false);
+
+        Debug.Log("Final composed photo ready and uploaded!");
     }
-
 }

@@ -109,7 +109,8 @@ public class FrameAsset
     public float scale;
     public float rotation;
     public int layer;
-    public int? placeholder_index;
+    // public int? placeholder_index;
+    public int placeholder_index;
     public int z_index;
     public string path;
 }
