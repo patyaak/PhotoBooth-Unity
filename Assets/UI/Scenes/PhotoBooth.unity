@@ -745,9 +745,9 @@ MonoBehaviour:
   displayManager: {fileID: 356378541}
   printButton: {fileID: 599636175}
   autoPrintAfterCapture: 0
+  loadingPanel: {fileID: 1238585431}
   selectedAspect: 1
   capturedPhotos: []
-  loadingPanel: {fileID: 1238585431}
 --- !u!4 &82522101
 Transform:
   m_ObjectHideFlags: 0
@@ -3592,7 +3592,7 @@ MonoBehaviour:
   m_enableAutoSizing: 1
   m_fontSizeMin: 18
   m_fontSizeMax: 72
-  m_fontStyle: 0
+  m_fontStyle: 1
   m_HorizontalAlignment: 2
   m_VerticalAlignment: 256
   m_textAlignment: 65535
@@ -4927,7 +4927,7 @@ GameObject:
   - component: {fileID: 790610612}
   - component: {fileID: 790610611}
   m_Layer: 0
-  m_Name: Image
+  m_Name: EditPanel
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -4949,11 +4949,11 @@ RectTransform:
   - {fileID: 273858598011529641}
   m_Father: {fileID: 535038657195993652}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
-  m_AnchorMin: {x: 1, y: 0}
-  m_AnchorMax: {x: 1, y: 1}
-  m_AnchoredPosition: {x: 0, y: 0}
-  m_SizeDelta: {x: 736.3256, y: 0}
-  m_Pivot: {x: 1, y: 0.5}
+  m_AnchorMin: {x: 0.5, y: 0.5}
+  m_AnchorMax: {x: 0.5, y: 0.5}
+  m_AnchoredPosition: {x: 562, y: 0}
+  m_SizeDelta: {x: 755.0558, y: 691.1665}
+  m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &790610611
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -4967,14 +4967,14 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   m_Material: {fileID: 0}
-  m_Color: {r: 0.8490566, g: 0.7969918, b: 0.7969918, a: 1}
+  m_Color: {r: 0.45696867, g: 0.5943396, b: 0.54181355, a: 0.6745098}
   m_RaycastTarget: 1
   m_RaycastPadding: {x: 0, y: 0, z: 0, w: 0}
   m_Maskable: 1
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_Sprite: {fileID: 21300000, guid: bb9e882afe9cf27408df1a6420662dff, type: 3}
+  m_Sprite: {fileID: 21300000, guid: a492de75c3a6352419b362ec0a7c66cc, type: 3}
   m_Type: 0
   m_PreserveAspect: 0
   m_FillCenter: 1
@@ -12472,27 +12472,11 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 29f60cf34fcad014abe3f8ca57f4da62, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  printerName: Canon MF3010
   printingPanel: {fileID: 0}
-  errorPanel: {fileID: 0}
-  statusText: {fileID: 0}
-  errorText: {fileID: 0}
-  progressBar: {fileID: 0}
-  retryButton: {fileID: 0}
-  previewImage: {fileID: 0}
-  printerName: Brother DCP-L2540DW series
-  paperSize: 0
-  printWidth: 1200
-  printHeight: 1600
-  printCopies: 1
-  autoCloseAfterPrint: 1
-  autoCloseDelay: 2
-  showRealtimeUSBErrors: 1
-  usbCheckIntervalWhenIdle: 3
-  usbCheckIntervalDuringPrint: 0.5
-  checkPrinterOnStart: 1
-  startupErrorPanel: {fileID: 0}
-  startupErrorText: {fileID: 0}
-  startupRetryButton: {fileID: 0}
+  errorPanel: {fileID: 2047740432}
+  statusText: {fileID: 52024130}
+  errorText: {fileID: 1952797596}
 --- !u!1 &1990448606
 GameObject:
   m_ObjectHideFlags: 0
@@ -13919,11 +13903,11 @@ RectTransform:
   - {fileID: 6890861000265678098}
   m_Father: {fileID: 790610610}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
-  m_AnchorMin: {x: 0, y: 0}
-  m_AnchorMax: {x: 1, y: 1}
-  m_AnchoredPosition: {x: -540.2433, y: 0}
-  m_SizeDelta: {x: 1080.4866, y: 0}
-  m_Pivot: {x: 0.5, y: 0.5}
+  m_AnchorMin: {x: 0.5, y: 0}
+  m_AnchorMax: {x: 0.5, y: 0}
+  m_AnchoredPosition: {x: 345, y: -58}
+  m_SizeDelta: {x: 0, y: 0}
+  m_Pivot: {x: 0.5, y: 0}
 --- !u!114 &381140456641012367
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -14425,11 +14409,11 @@ RectTransform:
   m_Children: []
   m_Father: {fileID: 535038657195993652}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
-  m_AnchorMin: {x: 0.5, y: 0.5}
-  m_AnchorMax: {x: 0.5, y: 0.5}
-  m_AnchoredPosition: {x: -500, y: 0}
+  m_AnchorMin: {x: 0, y: 0.5}
+  m_AnchorMax: {x: 0, y: 0.5}
+  m_AnchoredPosition: {x: 97, y: 0}
   m_SizeDelta: {x: 800, y: 800}
-  m_Pivot: {x: 0.5, y: 0.5}
+  m_Pivot: {x: 0, y: 0.5}
 --- !u!1 &951216725960117505
 GameObject:
   m_ObjectHideFlags: 0
@@ -15230,7 +15214,7 @@ MonoBehaviour:
   m_fontSizeMin: 18
   m_fontSizeMax: 72
   m_fontStyle: 1
-  m_HorizontalAlignment: 8
+  m_HorizontalAlignment: 4
   m_VerticalAlignment: 512
   m_textAlignment: 65535
   m_characterSpacing: 0
@@ -16389,8 +16373,8 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0, y: 0}
   m_AnchorMax: {x: 1, y: 1}
-  m_AnchoredPosition: {x: -540.2433, y: 0}
-  m_SizeDelta: {x: 1080.4866, y: 0}
+  m_AnchoredPosition: {x: 0, y: 0}
+  m_SizeDelta: {x: 0, y: 0}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!1 &4192428670226909863
 GameObject:
@@ -16441,11 +16425,11 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   m_Padding:
     m_Left: 0
-    m_Right: 50
-    m_Top: 200
+    m_Right: 40
+    m_Top: 110
     m_Bottom: 500
   m_ChildAlignment: 5
-  m_Spacing: 200
+  m_Spacing: 120
   m_ChildForceExpandWidth: 1
   m_ChildForceExpandHeight: 1
   m_ChildControlWidth: 0
@@ -16651,7 +16635,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0, y: 1}
   m_AnchorMax: {x: 0, y: 1}
-  m_AnchoredPosition: {x: 267, y: 39.947876}
+  m_AnchoredPosition: {x: 414, y: 39.947876}
   m_SizeDelta: {x: 446, y: 47.8958}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!1 &4623762039372053940
@@ -16900,8 +16884,8 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0, y: 1}
   m_AnchorMax: {x: 0, y: 1}
-  m_AnchoredPosition: {x: 1766.8123, y: -717.5}
-  m_SizeDelta: {x: 500, y: 47}
+  m_AnchoredPosition: {x: 715.0558, y: -467.5}
+  m_SizeDelta: {x: 650, y: 47}
   m_Pivot: {x: 1, y: 0.5}
 --- !u!1 &5055451545093386225
 GameObject:
@@ -17108,7 +17092,7 @@ MonoBehaviour:
   m_fontSizeMin: 18
   m_fontSizeMax: 72
   m_fontStyle: 1
-  m_HorizontalAlignment: 8
+  m_HorizontalAlignment: 4
   m_VerticalAlignment: 512
   m_textAlignment: 65535
   m_characterSpacing: 0
@@ -17560,8 +17544,8 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0, y: 1}
   m_AnchorMax: {x: 0, y: 1}
-  m_AnchoredPosition: {x: 1766.8123, y: -223.5}
-  m_SizeDelta: {x: 500, y: 47}
+  m_AnchoredPosition: {x: 715.0558, y: -133.5}
+  m_SizeDelta: {x: 650, y: 47}
   m_Pivot: {x: 1, y: 0.5}
 --- !u!1 &5713798348260577508
 GameObject:
@@ -17958,7 +17942,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0, y: 1}
   m_AnchorMax: {x: 0, y: 1}
-  m_AnchoredPosition: {x: 253.02136, y: 38.26068}
+  m_AnchoredPosition: {x: 400.02136, y: 38.26068}
   m_SizeDelta: {x: 463.9573, y: 60.5214}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!222 &6284285003830899590
@@ -18126,7 +18110,7 @@ MonoBehaviour:
   m_fontSizeMin: 18
   m_fontSizeMax: 72
   m_fontStyle: 1
-  m_HorizontalAlignment: 8
+  m_HorizontalAlignment: 4
   m_VerticalAlignment: 512
   m_textAlignment: 65535
   m_characterSpacing: 0
@@ -18202,8 +18186,8 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0, y: 1}
   m_AnchorMax: {x: 0, y: 1}
-  m_AnchoredPosition: {x: 1766.8123, y: -470.5}
-  m_SizeDelta: {x: 500, y: 47}
+  m_AnchoredPosition: {x: 715.0558, y: -300.5}
+  m_SizeDelta: {x: 650, y: 47}
   m_Pivot: {x: 1, y: 0.5}
 --- !u!222 &6517787323523947049
 CanvasRenderer:
@@ -18248,7 +18232,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0, y: 1}
   m_AnchorMax: {x: 0, y: 1}
-  m_AnchoredPosition: {x: 266.5, y: 39.312866}
+  m_AnchoredPosition: {x: 413.5, y: 39.312866}
   m_SizeDelta: {x: 437, y: 62.6257}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!1 &6540850674994004944

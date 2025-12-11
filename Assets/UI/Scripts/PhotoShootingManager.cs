@@ -34,7 +34,10 @@ public class PhotoShootingManager : MonoBehaviour
 
     [Header("Printing")]
     public Button printButton;
-    public bool autoPrintAfterCapture = false;
+    public bool autoPrintAfterCapture = true; // 🆕 Enable auto-print by default
+
+    [Header("UI References")]
+    public GameObject loadingPanel;
 
     public enum AspectRatio { Ratio16x9, Ratio1x1, Ratio4x5 }
     public AspectRatio selectedAspect = AspectRatio.Ratio1x1;
@@ -49,12 +52,16 @@ public class PhotoShootingManager : MonoBehaviour
     private Dictionary<int, Texture2D> photoByIndex = new Dictionary<int, Texture2D>();
     private List<int> uniqueIndices = new List<int>();
 
-    [Header("UI References")]
-    public GameObject loadingPanel;
-
     private Texture2D finalComposedImageForPrint;
     private GameObject instantiatedFrameObject;
 
+
+    private void Start()
+    {
+        autoPrintAfterCapture = true;
+
+        Debug.Log($"🖨️ Auto-print is: {(autoPrintAfterCapture ? "ENABLED ✅" : "DISABLED ⏸️")}");
+    }
     private void Awake()
     {
         Instance = this;
@@ -88,7 +95,6 @@ public class PhotoShootingManager : MonoBehaviour
         photoByIndex.Clear();
         uniqueIndices.Clear();
 
-        // Collect only placeholder assets with valid index (> 0)
         foreach (var asset in selectedFrame.frameData.assets)
         {
             if (asset.type == "placeholder" && asset.placeholder_index > 0)
@@ -103,7 +109,6 @@ public class PhotoShootingManager : MonoBehaviour
             return;
         }
 
-        // Extract unique indices
         uniqueIndices = placeholders
             .Select(p => p.placeholder_index)
             .Distinct()
@@ -121,7 +126,6 @@ public class PhotoShootingManager : MonoBehaviour
         StartWebcam();
         StartCoroutine(StartCountdownAndCapture());
     }
-
 
     private void StartWebcam()
     {
@@ -148,7 +152,6 @@ public class PhotoShootingManager : MonoBehaviour
         capturePreview.gameObject.SetActive(false);
         cameraPreview.gameObject.SetActive(true);
 
-        // Get current placeholder index and find a representative placeholder for size
         int currentIndex = uniqueIndices[currentShotIndex];
         var repPlaceholder = placeholders.FirstOrDefault(p => p.placeholder_index == currentIndex);
         if (repPlaceholder == null)
@@ -183,14 +186,12 @@ public class PhotoShootingManager : MonoBehaviour
 
         flashPanel.gameObject.SetActive(true);
 
-        // fade-in (quick)
         for (float a = 0; a <= 1; a += Time.deltaTime * 8f)
         {
             flashPanel.color = new Color(1, 1, 1, a);
             yield return null;
         }
 
-        // fade-out (slower)
         for (float a = 1; a >= 0; a -= Time.deltaTime * 4f)
         {
             flashPanel.color = new Color(1, 1, 1, a);
@@ -220,7 +221,6 @@ public class PhotoShootingManager : MonoBehaviour
 
         MatchPreviewSizes();
 
-        // Temporarily store cropped photo → will be replaced after beautification
         photoByIndex[placeholderIndex] = cropped;
 
         OpenBeautificationForImage(cropped, placeholderIndex, targetWidth, targetHeight);
@@ -236,8 +236,6 @@ public class PhotoShootingManager : MonoBehaviour
     {
         beautificationPanel.SetActive(false);
 
-        // Save final beautified image (UiController already saved it into beautifiedImages)
-        // We just need to map it back using current index
         int currentIndex = uniqueIndices[currentShotIndex];
         if (UiController.Instance.beautifiedImages.Count > currentShotIndex)
         {
@@ -298,53 +296,6 @@ public class PhotoShootingManager : MonoBehaviour
         StartCoroutine(StartCountdownAndCapture());
     }
 
-
-    // ============================================================
-    // NEW: Print Button Handler
-    // ============================================================
-    private void OnPrintButtonClicked()
-    {
-        if (finalComposedImageForPrint == null)
-        {
-            Debug.LogError("❌ No image to print!");
-            return;
-        }
-
-        // Debug.Log("🖨️ Print button clicked - sending to PrintingManager");
-
-        // Hide print button after clicking
-        if (printButton != null)
-            printButton.gameObject.SetActive(false);
-
-        // Send to PrintingManager for printing
-        // PrintingManager.Instance.PrintFinalImage(finalComposedImageForPrint);
-    }
-
-    // ============================================================
-    // NEW: Capture Frame as Texture for Printing
-    // ============================================================
-  
-  
-
-
-
-    // ============================================================
-    // ALTERNATIVE: Simple Screenshot Method (Backup)
-    // ============================================================
-    private Texture2D CaptureFrameAsTexture_Screenshot()
-    {
-        // Use Unity's built-in screenshot (simpler but captures whole screen)
-        Texture2D screenshot = ScreenCapture.CaptureScreenshotAsTexture();
-
-        // Optionally crop to just the frame area
-        // For now, just return the screenshot
-        return screenshot;
-    }
-
-    // -------------------------------
-    // CROPPING HELPERS
-    // -------------------------------
-
     private void SetCameraPreviewAspect(float targetAspect)
     {
         RectTransform camRect = cameraPreview.rectTransform;
@@ -402,54 +353,6 @@ public class PhotoShootingManager : MonoBehaviour
         }
     }
 
-    private void ApplyCenterCropToRawImage(RawImage raw, int texW, int texH)
-    {
-        if (raw == null || texW <= 0 || texH <= 0) return;
-
-        RectTransform rt = raw.rectTransform;
-        float texAspect = (float)texW / texH;
-        float uiAspect = rt.rect.width / rt.rect.height;
-
-        if (texAspect > uiAspect)
-        {
-            float scale = uiAspect / texAspect;
-            raw.uvRect = new Rect((1f - scale) / 2f, 0f, scale, 1f);
-        }
-        else
-        {
-            float scale = texAspect / uiAspect;
-            raw.uvRect = new Rect(0f, (1f - scale) / 2f, 1f, scale);
-        }
-    }
-
-    private Sprite CreateCenterCroppedSprite(Texture2D texture, float targetWidth, float targetHeight)
-    {
-        float imgAspect = (float)texture.width / texture.height;
-        float targetAspect = targetWidth / targetHeight;
-
-        int cropWidth = texture.width;
-        int cropHeight = texture.height;
-
-        if (imgAspect > targetAspect)
-        {
-            cropWidth = Mathf.RoundToInt(texture.height * targetAspect);
-        }
-        else
-        {
-            cropHeight = Mathf.RoundToInt(texture.width / targetAspect);
-        }
-
-        int x = (texture.width - cropWidth) / 2;
-        int y = (texture.height - cropHeight) / 2;
-
-        Color[] pixels = texture.GetPixels(x, y, cropWidth, cropHeight);
-        Texture2D croppedTex = new Texture2D(cropWidth, cropHeight);
-        croppedTex.SetPixels(pixels);
-        croppedTex.Apply();
-
-        return Sprite.Create(croppedTex, new Rect(0, 0, cropWidth, cropHeight), new Vector2(0.5f, 0.5f));
-    }
-
     public Texture2D GetCroppedTexture(Texture2D texture, float targetWidth, float targetHeight)
     {
         float imgAspect = (float)texture.width / texture.height;
@@ -489,23 +392,18 @@ public class PhotoShootingManager : MonoBehaviour
 
         string url = $"{apiBaseURL}api/order/upload-photo";
 
-        // Convert texture to PNG bytes
         byte[] photoBytes = photoTexture.EncodeToPNG();
 
         Debug.Log($"📤 Uploading photo to {url}");
-        Debug.Log($"   - order_id: '{orderId}' (IsNull: {orderId == null}, IsEmpty: {string.IsNullOrEmpty(orderId)}, Length: {orderId?.Length ?? 0})");
+        Debug.Log($"   - order_id: '{orderId}' (Length: {orderId?.Length ?? 0})");
         Debug.Log($"   - frame_id: {frameId}");
         Debug.Log($"   - payment_active: {paymentActive}");
         Debug.Log($"   - photo size: {photoBytes.Length} bytes ({photoTexture.width}x{photoTexture.height})");
 
-        // Create multipart form data using WWWForm
         WWWForm formData = new WWWForm();
 
-        // ALWAYS add order_id field (send empty string if not available)
         string orderIdToSend = string.IsNullOrEmpty(orderId) ? "" : orderId;
         formData.AddField("order_id", orderIdToSend);
-        Debug.Log($"   - Adding order_id to form: '{orderIdToSend}' (isEmpty: {string.IsNullOrEmpty(orderIdToSend)})");
-
         formData.AddField("frame_id", frameId);
         formData.AddField("payment_active", paymentActive.ToString().ToLower());
         formData.AddBinaryData("photo", photoBytes, "photo.png", "image/png");
@@ -545,8 +443,6 @@ public class PhotoShootingManager : MonoBehaviour
         }
     }
 
-
-
     private Texture2D CaptureFrameAsTexture(Transform frameTransform)
     {
         if (frameTransform == null)
@@ -562,11 +458,9 @@ public class PhotoShootingManager : MonoBehaviour
             return null;
         }
 
-        // Force UI to update correctly
         Canvas.ForceUpdateCanvases();
         LayoutRebuilder.ForceRebuildLayoutImmediate(rectTransform);
 
-        // Get corners
         Vector3[] corners = new Vector3[4];
         rectTransform.GetWorldCorners(corners);
 
@@ -596,7 +490,6 @@ public class PhotoShootingManager : MonoBehaviour
         int width = Mathf.RoundToInt(maxX - minX);
         int height = Mathf.RoundToInt(maxY - minY);
 
-        // Clamp BEFORE texture creation
         width = Mathf.Clamp(width, 1, Screen.width);
         height = Mathf.Clamp(height, 1, Screen.height);
 
@@ -620,8 +513,6 @@ public class PhotoShootingManager : MonoBehaviour
         }
     }
 
-
-    // Helper method for debugging (optional)
     private void SaveTextureToFile(Texture2D texture, string filename)
     {
         byte[] bytes = texture.EncodeToPNG();
@@ -630,7 +521,6 @@ public class PhotoShootingManager : MonoBehaviour
         Debug.Log($"💾 Debug: Saved texture to: {path}");
     }
 
-    // Helper method to get full transform path
     private string GetFullPath(Transform transform)
     {
         string path = transform.name;
@@ -642,8 +532,9 @@ public class PhotoShootingManager : MonoBehaviour
         return path;
     }
 
-
-    // REPLACE the entire ApplyPhotosWithFrame method with this updated version:
+    // ============================================================
+    // 🆕 MAIN FRAME COMPOSITION METHOD WITH AUTO-PRINT
+    // ============================================================
     private IEnumerator ApplyPhotosWithFrame()
     {
         // Show loading at the beginning
@@ -769,17 +660,34 @@ public class PhotoShootingManager : MonoBehaviour
         bool wasLoadingActive = loadingPanel != null && loadingPanel.activeSelf;
         if (wasLoadingActive) loadingPanel.SetActive(false);
 
-        // One extra frame to make sure it's gone
         yield return new WaitForEndOfFrame();
 
         // NOW CAPTURE THE REAL FRAME
         finalComposedImageForPrint = CaptureFrameAsTexture(capturedImagesParent);
 
-        // Optional: Debug save to see exactly what was captured
 #if UNITY_EDITOR
         if (finalComposedImageForPrint != null)
             SaveTextureToFile(finalComposedImageForPrint, "DEBUG_FINAL_PHOTO_WITH_FRAME.png");
 #endif
+
+        // 🆕 AUTO-PRINT: Print immediately after capture
+        if (finalComposedImageForPrint != null && autoPrintAfterCapture)
+        {
+            Debug.Log("🖨️ AUTO-PRINT: Triggering print job...");
+
+            if (PrintingManager.Instance != null)
+            {
+                PrintingManager.Instance.PrintFinalImage(finalComposedImageForPrint);
+            }
+            else
+            {
+                Debug.LogError("❌ PrintingManager.Instance is null! Cannot auto-print.");
+            }
+        }
+        else if (!autoPrintAfterCapture)
+        {
+            Debug.Log("⏸️ Auto-print is disabled. User must click print button manually.");
+        }
 
         // Re-enable loading panel during upload
         if (wasLoadingActive) loadingPanel.SetActive(true);
@@ -801,6 +709,6 @@ public class PhotoShootingManager : MonoBehaviour
         // Finally hide loading when everything is done
         if (loadingPanel != null) loadingPanel.SetActive(false);
 
-        Debug.Log("Final composed photo ready and uploaded!");
+        Debug.Log("✅ Final composed photo ready, printed (if enabled), and uploaded!");
     }
 }
