@@ -35,6 +35,18 @@ public class VendorLogin : MonoBehaviour
     private Sprite defaultQRMobile;
     private Sprite defaultCamera;
 
+    public GameObject errorPanel;
+
+    // Currently logged-in booth ID
+    private string currentBoothID = "";
+
+    [Header("Booth Id Edit Unlock")]
+    public Button boothIdTextButton;
+    private int boothIdClickCount = 0;
+    private float lastBoothIdClickTime = 0;
+    private float clickResetTime = 1f;
+    private int clicksRequiredToUnlock = 5;
+   
     void Start()
     {
         submitButton.onClick.AddListener(OnSubmitClicked);
@@ -56,7 +68,30 @@ public class VendorLogin : MonoBehaviour
             StartCoroutine(LoadBoothData(savedBoothID));
         }
 
+        boothIDInput.readOnly = true;
+        if (boothIdTextButton != null)
+        {
+            boothIdTextButton.onClick.AddListener(OnBoothIdTextClicked);
+        }
+
         SetupSecretTrigger();
+    }
+
+    void OnBoothIdTextClicked()
+    {
+        // reset count if too much time passed
+        if (Time.time - lastBoothIdClickTime > clickResetTime)
+            boothIdClickCount = 0;
+
+        boothIdClickCount++;
+        lastBoothIdClickTime = Time.time;
+
+        if (boothIdClickCount >= clicksRequiredToUnlock)
+        {
+            boothIDInput.readOnly = false; // make input field editable
+            Debug.Log("Booth ID input is now editable!");
+            boothIdClickCount = 0; // reset click count after unlocking
+        }
     }
 
     void OnSubmitClicked()
@@ -65,6 +100,7 @@ public class VendorLogin : MonoBehaviour
         if (!string.IsNullOrEmpty(boothID))
         {
             StartCoroutine(LoadBoothData(boothID));
+            boothIDInput.readOnly = true;
         }
         else
         {
@@ -77,16 +113,21 @@ public class VendorLogin : MonoBehaviour
         string fullURL = $"{apiBaseURL}/api/photobooth/booths/{boothID}";
         Debug.Log($"Fetching booth data from: {fullURL}");
 
-        yield return LoggedWebRequest.Get(fullURL, (request) =>
+        yield return StartCoroutine(FetchBoothData(fullURL));
+    }
+
+    IEnumerator FetchBoothData(string url)
+    {
+        using (UnityWebRequest request = UnityWebRequest.Get(url))
         {
+            yield return request.SendWebRequest();
+
             if (request.result == UnityWebRequest.Result.Success)
             {
                 if (wifiErrorGO != null)
                     wifiErrorGO.SetActive(false);
 
-                string json = request.downloadHandler.text;
-                json = json.Replace(": null", ": \"\"");
-
+                string json = request.downloadHandler.text.Replace(": null", ": \"\"");
                 Debug.Log($"Raw JSON Response:\n{json}");
 
                 BoothListResponse response = null;
@@ -97,7 +138,7 @@ public class VendorLogin : MonoBehaviour
                 catch (System.Exception ex)
                 {
                     Debug.LogError($"JSON parse error: {ex.Message}");
-                    return;
+                    yield break;
                 }
 
                 if (response != null && response.success && response.data != null && response.data.booth != null)
@@ -105,22 +146,28 @@ public class VendorLogin : MonoBehaviour
                     Booth booth = response.data.booth;
                     Theme theme = response.data.theme;
 
-                    // Reset visuals first to avoid old theme showing
+                    if (booth.status.ToLower() == "stop")
+                    {
+                        ShowErrorAndReset();
+                        yield break;
+                    }
+
+                    // Update current booth ID
+                    currentBoothID = booth.booth_id;
+
+                    // Reset visuals first
                     ResetThemeVisuals();
 
+                    // Apply theme
                     if (theme != null)
-                    {
-                        Debug.Log("Applying theme...");
                         ApplyTheme(theme);
-                    }
                     else
-                    {
                         Debug.LogWarning("No theme assigned to this booth.");
-                    }
 
                     if (boothPrice != null)
                         boothPrice.text = booth.price;
 
+                    // Save booth settings
                     PlayerPrefs.SetString("booth_id", booth.booth_id);
                     PlayerPrefs.SetString("booth_price", booth.price);
                     PlayerPrefs.SetString("gacha_price", booth.gacha_price);
@@ -129,14 +176,9 @@ public class VendorLogin : MonoBehaviour
 
                     Debug.Log($"💾 Booth settings saved: ID={booth.booth_id}, Price={booth.price}, Gacha={booth.gacha_price}, Payments={booth.payments_enabled}");
 
-                    bool loginRequired = booth.login_required;
-
                     var loginManager = FindAnyObjectByType<LoginManager>();
                     if (loginManager != null)
-                    {
-                        loginManager.generateQRButton.gameObject.SetActive (loginRequired);
-                        
-                    }
+                        loginManager.generateQRButton.gameObject.SetActive(booth.login_required);
 
                     // LOG: Booth logged in
                     LoggingManager.Instance?.LogSystemEvent(
@@ -154,11 +196,13 @@ public class VendorLogin : MonoBehaviour
                         frameManager.SetBoothID(booth.booth_id);
                         StartCoroutine(frameManager.FetchFramesFromServer());
                     }
+
+                    // Start checking booth status
+                    StartCoroutine(CheckBoothStatusRoutine());
                 }
                 else
                 {
                     Debug.LogError($"Invalid or empty response.\nRaw JSON:\n{json}");
-
                     if (wifiErrorGO != null)
                         wifiErrorGO.SetActive(true);
                 }
@@ -169,7 +213,7 @@ public class VendorLogin : MonoBehaviour
                 if (wifiErrorGO != null)
                     wifiErrorGO.SetActive(true);
             }
-        });
+        }
     }
 
     void ApplyTheme(Theme theme)
@@ -231,10 +275,9 @@ public class VendorLogin : MonoBehaviour
         if (logoClickCount >= 5)
         {
             SwitchVendor();
-            logoClickCount = 0; // reset after triggering
+            logoClickCount = 0;
         }
     }
-
 
     public void SwitchVendor()
     {
@@ -245,24 +288,18 @@ public class VendorLogin : MonoBehaviour
         PlayerPrefs.DeleteKey("payments_enabled");
         PlayerPrefs.Save();
 
-        var deviceReg = FindAnyObjectByType<DeviceRegistration>();
-        if (deviceReg != null)
-            boothIDInput.text = deviceReg.GetSavedBoothID();
-        else
-            boothIDInput.text = "";
+        currentBoothID = "";
 
+        var deviceReg = FindAnyObjectByType<DeviceRegistration>();
+        boothIDInput.text = deviceReg != null ? deviceReg.GetSavedBoothID() : "";
         boothPrice.text = "";
 
-        // Restore default images instead of clearing
         ResetThemeVisuals();
-
         mainAppPanel.SetActive(false);
 
         var frameManager = FindAnyObjectByType<PhotoBoothFrameManager>();
         if (frameManager != null)
-        {
             frameManager.ClearFrames();
-        }
 
         Debug.Log("All data cleared. Ready for a new booth ID.");
     }
@@ -273,5 +310,45 @@ public class VendorLogin : MonoBehaviour
         if (logoImage) logoImage.sprite = defaultLogo;
         if (qrMobileImage) qrMobileImage.sprite = defaultQRMobile;
         if (cameraImage) cameraImage.sprite = defaultCamera;
+    }
+
+    void ShowErrorAndReset()
+    {
+        if (errorPanel != null)
+            errorPanel.SetActive(true);
+
+        mainAppPanel.SetActive(false);
+        SwitchVendor();
+    }
+
+    IEnumerator CheckBoothStatusRoutine()
+    {
+        while (!string.IsNullOrEmpty(currentBoothID))
+        {
+            string url = $"{apiBaseURL}/api/photobooth/booths/{currentBoothID}";
+            using (UnityWebRequest request = UnityWebRequest.Get(url))
+            {
+                yield return request.SendWebRequest();
+
+                if (request.result == UnityWebRequest.Result.Success)
+                {
+                    string json = request.downloadHandler.text.Replace(": null", ": \"\"");
+                    BoothListResponse response = JsonUtility.FromJson<BoothListResponse>(json);
+
+                    if (response != null && response.success && response.data != null && response.data.booth != null)
+                    {
+                        Booth booth = response.data.booth;
+                        if (booth.status.ToLower() == "stop")
+                        {
+                            Debug.LogWarning("Booth has been stopped! Returning to login page.");
+                            ShowErrorAndReset();
+                            yield break;
+                        }
+                    }
+                }
+            }
+
+            yield return new WaitForSeconds(5f); // check every 5 seconds
+        }
     }
 }
