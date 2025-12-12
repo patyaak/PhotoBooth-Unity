@@ -238,4 +238,26 @@ class FrameItem : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler,IPoin
         // Clear initial image until downloaded
         if (frameImg != null) frameImg.sprite = null;
     }
+
+
+    public string GetOrientation()
+    {
+        if (frameData == null)
+            return "portrait";
+
+        // Check if type field exists in JSON
+        if (!string.IsNullOrEmpty(frameData.type))
+        {
+            return frameData.type.ToLower();
+        }
+
+        // Fallback: return portrait as default
+        return "portrait";
+    }
+
+    public string GetOrientationLabel()
+    {
+        string orientation = GetOrientation();
+        return orientation == "landscape" ? "横向き" : "縦向き";
+    }
 }

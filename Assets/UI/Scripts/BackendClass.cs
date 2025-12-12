@@ -75,6 +75,7 @@ public class Frame
     public string created_at;
     public string updated_at;
     public string total_uses;
+    public string type;
     public Creator creator;
     public Approver approver;
     public string sub_category;

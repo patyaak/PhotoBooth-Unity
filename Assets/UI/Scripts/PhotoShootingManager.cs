@@ -575,6 +575,10 @@ public class PhotoShootingManager : MonoBehaviour
         }
         if (frameTex == null) frameTex = Texture2D.grayTexture;
 
+        // 🆕 DETERMINE FRAME ORIENTATION FROM JSON OR ASPECT RATIO
+        string frameType = DetermineFrameOrientation(frameTex);
+        Debug.Log($"🖼️ Frame orientation: {frameType} ({frameTex.width}x{frameTex.height})");
+
         // Setup container hierarchy
         Transform frameContainer = frameObj.transform.Find("frame");
         if (frameContainer == null)
@@ -662,22 +666,22 @@ public class PhotoShootingManager : MonoBehaviour
 
         yield return new WaitForEndOfFrame();
 
-        // NOW CAPTURE THE REAL FRAME
-        finalComposedImageForPrint = CaptureFrameAsTexture(capturedImagesParent);
+        // 🆕 CAPTURE ONLY THE capturedImages TRANSFORM (no white space)
+        finalComposedImageForPrint = CaptureTransformContent(capturedImagesParent);
 
 #if UNITY_EDITOR
         if (finalComposedImageForPrint != null)
             SaveTextureToFile(finalComposedImageForPrint, "DEBUG_FINAL_PHOTO_WITH_FRAME.png");
 #endif
 
-        // 🆕 AUTO-PRINT: Print immediately after capture
+        // 🆕 AUTO-PRINT WITH FRAME TYPE
         if (finalComposedImageForPrint != null && autoPrintAfterCapture)
         {
-            Debug.Log("🖨️ AUTO-PRINT: Triggering print job...");
+            Debug.Log($"🖨️ AUTO-PRINT: Sending {frameType} frame to printer...");
 
             if (PrintingManager.Instance != null)
             {
-                PrintingManager.Instance.PrintFinalImage(finalComposedImageForPrint);
+                PrintingManager.Instance.PrintFinalImage(finalComposedImageForPrint, frameType);
             }
             else
             {
@@ -709,6 +713,120 @@ public class PhotoShootingManager : MonoBehaviour
         // Finally hide loading when everything is done
         if (loadingPanel != null) loadingPanel.SetActive(false);
 
-        Debug.Log("✅ Final composed photo ready, printed (if enabled), and uploaded!");
+        Debug.Log($"✅ Final {frameType} photo ready, printed, and uploaded!");
+    }
+
+    // 🆕 ADD THIS NEW METHOD to PhotoShootingManager.cs
+    /// <summary>
+    /// Determines if frame is portrait or landscape based on JSON type or dimensions
+    /// </summary>
+    private string DetermineFrameOrientation(Texture2D frameTexture)
+    {
+        if (frameTexture == null)
+            return "portrait";
+
+        // 1. Check from JSON if available
+        if (currentFrameItem?.frameData != null)
+        {
+            string type = currentFrameItem.frameData.type;
+            if (!string.IsNullOrEmpty(type))
+            {
+                Debug.Log($"📋 Using frame type from JSON: {type}");
+                return type.ToLower();
+            }
+        }
+
+        // 2. Fallback: analyze dimensions
+        float aspectRatio = (float)frameTexture.width / frameTexture.height;
+
+        if (aspectRatio > 1.1f) // Significantly wider than tall
+        {
+            Debug.Log($"📐 Detected LANDSCAPE from aspect ratio: {aspectRatio:F2}");
+            return "landscape";
+        }
+        else
+        {
+            Debug.Log($"📐 Detected PORTRAIT from aspect ratio: {aspectRatio:F2}");
+            return "portrait";
+        }
+    }
+
+    // 🆕 ADD THIS NEW METHOD to PhotoShootingManager.cs
+    /// <summary>
+    /// Captures ONLY the content of capturedImages transform (no extra white space)
+    /// </summary>
+    private Texture2D CaptureTransformContent(Transform target)
+    {
+        if (target == null)
+        {
+            Debug.LogError("❌ Target transform is null!");
+            return null;
+        }
+
+        RectTransform rectTransform = target.GetComponent<RectTransform>();
+        if (rectTransform == null)
+        {
+            Debug.LogError("❌ RectTransform not found!");
+            return null;
+        }
+
+        // Force canvas update
+        Canvas.ForceUpdateCanvases();
+        LayoutRebuilder.ForceRebuildLayoutImmediate(rectTransform);
+
+        // Get world corners
+        Vector3[] corners = new Vector3[4];
+        rectTransform.GetWorldCorners(corners);
+
+        // Find camera
+        Camera cam = Camera.main;
+        if (cam == null)
+        {
+            Canvas canvas = target.GetComponentInParent<Canvas>();
+            if (canvas != null && canvas.worldCamera != null)
+                cam = canvas.worldCamera;
+        }
+
+        // Calculate screen bounds
+        float minX = float.MaxValue, minY = float.MaxValue;
+        float maxX = float.MinValue, maxY = float.MinValue;
+
+        for (int i = 0; i < 4; i++)
+        {
+            Vector3 screenPoint = cam ? cam.WorldToScreenPoint(corners[i]) : corners[i];
+            minX = Mathf.Min(minX, screenPoint.x);
+            minY = Mathf.Min(minY, screenPoint.y);
+            maxX = Mathf.Max(maxX, screenPoint.x);
+            maxY = Mathf.Max(maxY, screenPoint.y);
+        }
+
+        int x = Mathf.RoundToInt(minX);
+        int y = Mathf.RoundToInt(minY);
+        int width = Mathf.RoundToInt(maxX - minX);
+        int height = Mathf.RoundToInt(maxY - minY);
+
+        // Clamp to screen bounds
+        width = Mathf.Clamp(width, 1, Screen.width);
+        height = Mathf.Clamp(height, 1, Screen.height);
+        x = Mathf.Clamp(x, 0, Screen.width - width);
+        y = Mathf.Clamp(y, 0, Screen.height - height);
+
+        Debug.Log($"📸 Capturing capturedImages: {width}x{height}px at screen position ({x},{y})");
+
+        Texture2D tex = new Texture2D(width, height, TextureFormat.RGB24, false);
+
+        try
+        {
+            tex.ReadPixels(new Rect(x, y, width, height), 0, 0);
+            tex.Apply();
+            Debug.Log($"✅ Successfully captured frame content: {width}x{height}");
+            return tex;
+        }
+        catch (System.Exception e)
+        {
+            Debug.LogError($"❌ Capture failed: {e.Message}");
+            Destroy(tex);
+            return null;
+        }
     }
 }
