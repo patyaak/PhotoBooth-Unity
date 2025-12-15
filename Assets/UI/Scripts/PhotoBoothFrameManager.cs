@@ -39,6 +39,8 @@ public class PhotoBoothFrameManager : MonoBehaviour
     public int minFramesForScroll = 6; // Configurable threshold
     private int currentPage = 0;
     private int totalPages = 0;
+    private bool isManualScrolling = false;
+    private float scrollPositionThreshold = 0.1f; // Threshold to detect page change
 
     [Header("API")]
     public string apiBaseURL = "http://photo-stg-api.chvps3.aozora-okinawa.com/";
@@ -70,6 +72,7 @@ public class PhotoBoothFrameManager : MonoBehaviour
     {
         StoreNormalSprites();
         SetupButtonListeners();
+        SetupScrollRectListeners();
         OnCategoryButtonClicked(defaultButton);
     }
 
@@ -110,6 +113,29 @@ public class PhotoBoothFrameManager : MonoBehaviour
         if (prevButton) prevButton.onClick.AddListener(OnPrevClicked);
     }
 
+    private void SetupScrollRectListeners()
+    {
+        if (scrollRect != null)
+        {
+            scrollRect.onValueChanged.AddListener(OnScrollValueChanged);
+        }
+    }
+
+    private void OnScrollValueChanged(Vector2 position)
+    {
+        if (isManualScrolling || totalPages <= 1) return;
+
+        // Detect which page we're closest to based on scroll position
+        int closestPage = Mathf.RoundToInt(scrollRect.horizontalNormalizedPosition * (totalPages - 1));
+        closestPage = Mathf.Clamp(closestPage, 0, totalPages - 1);
+
+        if (closestPage != currentPage)
+        {
+            currentPage = closestPage;
+            UpdateNavigationButtons();
+        }
+    }
+
     IEnumerator FrameHeartbeat()
     {
         while (true)
@@ -122,6 +148,7 @@ public class PhotoBoothFrameManager : MonoBehaviour
 
     IEnumerator ScrollTo(float target)
     {
+        isManualScrolling = true;
         float start = scrollRect.horizontalNormalizedPosition;
         float time = 0f;
         float duration = 0.3f;
@@ -132,6 +159,8 @@ public class PhotoBoothFrameManager : MonoBehaviour
             yield return null;
         }
         scrollRect.horizontalNormalizedPosition = target;
+        yield return new WaitForSeconds(0.1f); // Small delay before re-enabling touch detection
+        isManualScrolling = false;
     }
 
     void OnNextClicked()
@@ -642,6 +671,5 @@ public class PhotoBoothFrameManager : MonoBehaviour
         target.localScale = targetScale;
     }
 
-    
 
 }
