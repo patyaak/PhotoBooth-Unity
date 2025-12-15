@@ -36,6 +36,7 @@ public class PhotoBoothFrameManager : MonoBehaviour
     public Button nextButton;
     public Button prevButton;
     public float scrollStep = 1f;
+    public int minFramesForScroll = 6; // Configurable threshold
 
     [Header("API")]
     public string apiBaseURL = "http://photo-stg-api.chvps3.aozora-okinawa.com/";
@@ -248,6 +249,7 @@ public class PhotoBoothFrameManager : MonoBehaviour
         if (frames == null || frames.Count == 0)
         {
             ShowEmptyState(currentCategory == "myframe" ? "You have no frames yet" : "No frames available");
+            UpdateScrollButtons(0); // Hide scroll buttons when empty
             return;
         }
 
@@ -275,7 +277,24 @@ public class PhotoBoothFrameManager : MonoBehaviour
         decideButton.gameObject.SetActive(currentCategory != "gacha");
         playButton.gameObject.SetActive(currentCategory == "gacha");
 
+        // Update scroll button visibility based on frame count
+        UpdateScrollButtons(frames.Count);
+
         StartCoroutine(DownloadThumbnailsAndAssetsParallel(currentFrameItems));
+    }
+
+    /// <summary>
+    /// Shows or hides next/prev buttons based on number of frames
+    /// </summary>
+    private void UpdateScrollButtons(int frameCount)
+    {
+        bool shouldShowScrollButtons = frameCount > minFramesForScroll;
+
+        if (nextButton != null)
+            nextButton.gameObject.SetActive(shouldShowScrollButtons);
+
+        if (prevButton != null)
+            prevButton.gameObject.SetActive(shouldShowScrollButtons);
     }
 
     private void ShowEmptyState(string message = "No frames")
@@ -288,6 +307,9 @@ public class PhotoBoothFrameManager : MonoBehaviour
         }
         decideButton.gameObject.SetActive(false);
         playButton.gameObject.SetActive(false);
+
+        // Hide scroll buttons in empty state
+        UpdateScrollButtons(0);
     }
 
     private IEnumerator DownloadThumbnailsAndAssetsParallel(List<FrameItem> items)

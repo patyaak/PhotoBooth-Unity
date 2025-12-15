@@ -4176,7 +4176,7 @@ GameObject:
   - component: {fileID: 618989760}
   - component: {fileID: 618989761}
   m_Layer: 0
-  m_Name: FrameManager
+  m_Name: PhotoBoothManager
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -12866,7 +12866,9 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   printerName: Canon MF3010
-  useExact1Inch: 0
+  paperWidthInches: 4
+  paperHeightInches: 6
+  dpi: 360
   printingPanel: {fileID: 0}
   errorPanel: {fileID: 2047740432}
   statusText: {fileID: 52024130}
