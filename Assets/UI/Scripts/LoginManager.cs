@@ -47,7 +47,7 @@ public class LoginManager : MonoBehaviour
     private bool isWebSocketConnected = false;
     private float lastActivityTime = 0f;
 
-  
+
     private void Start()
     {
 #if UNITY_STANDALONE || UNITY_EDITOR
@@ -62,6 +62,9 @@ public class LoginManager : MonoBehaviour
 
         if (generateQRButton) generateQRButton.onClick.AddListener(OnGenerateQRClicked);
         if (GuestButton) GuestButton.onClick.AddListener(OnGuestBtnClick);
+
+        // Keep QR panel inactive on app start - user clicks button to activate
+        if (qrPanel != null) qrPanel.SetActive(false);
     }
 
     private void Awake()
@@ -83,6 +86,56 @@ public class LoginManager : MonoBehaviour
         }
     }
 
+    public void ResetToLoginPanel()
+    {
+        Debug.Log("🔄 Resetting to login panel...");
+
+        // Close all other panels
+        if (frameSelectionPanel != null) frameSelectionPanel.SetActive(false);
+        if (paymentPanel != null) paymentPanel.SetActive(false);
+        if (blockImg != null) blockImg.SetActive(false);
+
+        //show back button
+        frameManager.backButton.gameObject.SetActive(true);
+
+        // Show QR panel
+        if (qrPanel != null) qrPanel.SetActive(false);
+
+        // Stop any ongoing timeout routines
+        if (panelTimeoutRoutine != null)
+        {
+            StopCoroutine(panelTimeoutRoutine);
+            panelTimeoutRoutine = null;
+        }
+
+        // Stop auto-refresh if running
+        if (autoRefreshRoutine != null)
+        {
+            StopCoroutine(autoRefreshRoutine);
+            autoRefreshRoutine = null;
+        }
+
+        // Close websocket if open
+        CloseWebSocket();
+
+        // Clear current token
+        currentToken = null;
+
+        // **NEW: Reset frame manager to default category**
+        if (frameManager != null)
+        {
+            frameManager.ResetToDefaultCategory();
+        }
+
+        // **NEW: Clear gacha state if exists**
+        if (GatchaManager.Instance != null)
+        {
+            GatchaManager.Instance.ClearSpawnedFramesInstant();
+            GatchaManager.Instance.celebration.SetActive(false); 
+        }
+
+        Debug.Log("✅ Ready for next customer!");
+    }
 
     // QR GENERATION
     private void OnGenerateQRClicked()
@@ -148,7 +201,7 @@ public class LoginManager : MonoBehaviour
     }
 
     // WEBSOCKET
-  
+
     private async void ConnectWebSocket()
     {
         if (string.IsNullOrEmpty(boothKey))
@@ -305,15 +358,20 @@ public class LoginManager : MonoBehaviour
         frameSelectionPanel.SetActive(true);
         lastActivityTime = Time.time;
 
-        if (frameManager != null && frameManager.myFrameButton != null)
-            frameManager.myFrameButton.interactable = !isGuest;
+        // **NEW: Always reset to default category when opening frame selection**
+        if (frameManager != null)
+        {
+            frameManager.ResetToDefaultCategory();
+        }
+
+        if (isGuest)
+        {
+            frameManager.myFrameButton.interactable = false;
+        }
 
         if (panelTimeoutRoutine != null) StopCoroutine(panelTimeoutRoutine);
         panelTimeoutRoutine = StartCoroutine(FramePanelAutoClose());
     }
-
-
-    // FIXED: Don't show QR panel on timeout, just close frame panel
 
     IEnumerator FramePanelAutoClose()
     {
@@ -321,7 +379,7 @@ public class LoginManager : MonoBehaviour
         {
             if (Time.time - lastActivityTime >= framePanelTimeoutSeconds)
             {
-                // ONLY close frame panel, don't open QR panel
+                // Close frame panel and return to login
                 frameSelectionPanel.SetActive(false);
                 paymentPanel.SetActive(false);
 
@@ -331,14 +389,18 @@ public class LoginManager : MonoBehaviour
                 PlayerPrefs.DeleteKey("session_id");
                 PlayerPrefs.Save();
 
-                Debug.Log("Frame selection timed out - session cleared");
+                Debug.Log("Frame selection timed out - returning to login");
+
+                // Return to login panel
+                ResetToLoginPanel();
+
                 yield break;
             }
             yield return null;
         }
     }
 
-    
+
     // APPLICATION QUIT
     private async void OnApplicationQuit()
     {
@@ -346,7 +408,7 @@ public class LoginManager : MonoBehaviour
         await Task.Delay(100);
     }
 
-  
+
     // SERIALIZABLE CLASSES
     [Serializable] public class QRRequestData { public string booth_id; public int ttl_seconds; public QRRequestData(string id, int ttl) { booth_id = id; ttl_seconds = ttl; } }
     [Serializable] public class QRResponse { public bool success; public QRData data; }

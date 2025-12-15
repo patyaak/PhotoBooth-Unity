@@ -204,6 +204,63 @@ public class PhotoBoothFrameManager : MonoBehaviour
     public void SetBoothID(string id) => boothID = id;
 
     // ==================================================================
+    // NEW: RESET TO DEFAULT CATEGORY METHOD
+    // ==================================================================
+    /// <summary>
+    /// Resets frame manager to default category - called when new customer session starts
+    /// </summary>
+    public void ResetToDefaultCategory()
+    {
+        Debug.Log("🔄 Resetting to default frame category...");
+
+        // Clear any selected frame
+        if (currentSelectedFrame != null)
+        {
+            currentSelectedFrame.Deselect();
+            currentSelectedFrame = null;
+        }
+
+        // Reset to default category
+        currentCategory = "default";
+
+        // Reset all button visuals to normal state
+        if (currentSelectedButton != null)
+        {
+            ResetButtonSprite(currentSelectedButton);
+        }
+
+        // Re-enable all category buttons (in case gacha disabled them)
+        if (defaultButton) defaultButton.interactable = true;
+        if (recommendationButton) recommendationButton.interactable = true;
+        if (myFrameButton) myFrameButton.interactable = true;
+        if (gatchaButton) gatchaButton.interactable = true;
+
+        // Set default button as selected
+        if (defaultButton != null)
+        {
+            ApplySelectedSprite(defaultButton);
+            currentSelectedButton = defaultButton;
+        }
+
+        // Reset scroll position to start
+        if (scrollRect != null)
+        {
+            scrollRect.horizontalNormalizedPosition = 0f;
+        }
+
+        // Clear gacha animations if any
+        if (GatchaManager.Instance != null)
+        {
+            GatchaManager.Instance.ClearSpawnedFramesInstant();
+        }
+
+        // Fetch default frames
+        StartCoroutine(FetchFramesFromServer());
+
+        Debug.Log("✅ Reset to default category complete");
+    }
+
+    // ==================================================================
     // MAIN FETCH METHOD – NOW WITH MYFRAME + USER_ID FILTER SUPPORT
     // ==================================================================
     public IEnumerator FetchFramesFromServer()
@@ -216,10 +273,10 @@ public class PhotoBoothFrameManager : MonoBehaviour
         string url = apiBaseURL + "api/photobooth/frames";
 
         var parameters = new List<string>
-    {
-        "booth_id=" + UnityWebRequest.EscapeURL(boothID),
-        "assignment_type=" + currentCategory
-    };
+        {
+            "booth_id=" + UnityWebRequest.EscapeURL(boothID),
+            "assignment_type=" + currentCategory
+        };
 
         // MYFRAME: Add user_id filter if logged in
         if (currentCategory == "myframe")

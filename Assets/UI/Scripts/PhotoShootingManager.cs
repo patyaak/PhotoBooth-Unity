@@ -19,6 +19,7 @@ public class PhotoShootingManager : MonoBehaviour
     [Header("Panels")]
     public GameObject photoShootPanel;
     public GameObject beautificationPanel;
+    public GameObject photoPreviewPanel;
 
     [Header("Countdown")]
     public TMP_Text timerText;
@@ -32,12 +33,18 @@ public class PhotoShootingManager : MonoBehaviour
     [Header("Frame Display")]
     public CapturedPhotosDisplayManager displayManager;
 
+    [Header("Preview Display")]
+    public Image finalPhotoPreview;
+
     [Header("Printing")]
     public Button printButton;
-    public bool autoPrintAfterCapture = true; // 🆕 Enable auto-print by default
+    public bool autoPrintAfterCapture = true;
 
     [Header("UI References")]
     public GameObject loadingPanel;
+
+    [Header("Preview Settings")]
+    public float previewDurationSeconds = 2f;
 
     public enum AspectRatio { Ratio16x9, Ratio1x1, Ratio4x5 }
     public AspectRatio selectedAspect = AspectRatio.Ratio1x1;
@@ -60,8 +67,12 @@ public class PhotoShootingManager : MonoBehaviour
     {
         autoPrintAfterCapture = true;
 
+        if (photoPreviewPanel != null)
+            photoPreviewPanel.SetActive(false);
+
         Debug.Log($"🖨️ Auto-print is: {(autoPrintAfterCapture ? "ENABLED ✅" : "DISABLED ⏸️")}");
     }
+
     private void Awake()
     {
         Instance = this;
@@ -443,76 +454,6 @@ public class PhotoShootingManager : MonoBehaviour
         }
     }
 
-    private Texture2D CaptureFrameAsTexture(Transform frameTransform)
-    {
-        if (frameTransform == null)
-        {
-            Debug.LogError("❌ Frame transform is null!");
-            return null;
-        }
-
-        RectTransform rectTransform = frameTransform.GetComponent<RectTransform>();
-        if (rectTransform == null)
-        {
-            Debug.LogError("❌ RectTransform not found!");
-            return null;
-        }
-
-        Canvas.ForceUpdateCanvases();
-        LayoutRebuilder.ForceRebuildLayoutImmediate(rectTransform);
-
-        Vector3[] corners = new Vector3[4];
-        rectTransform.GetWorldCorners(corners);
-
-        Camera cam = Camera.main;
-        if (cam == null)
-        {
-            Canvas canvas = frameTransform.GetComponentInParent<Canvas>();
-            if (canvas != null && canvas.worldCamera != null)
-                cam = canvas.worldCamera;
-        }
-
-        float minX = float.MaxValue, minY = float.MaxValue;
-        float maxX = float.MinValue, maxY = float.MinValue;
-
-        for (int i = 0; i < 4; i++)
-        {
-            Vector3 screenPoint = cam ? cam.WorldToScreenPoint(corners[i]) : corners[i];
-
-            minX = Mathf.Min(minX, screenPoint.x);
-            minY = Mathf.Min(minY, screenPoint.y);
-            maxX = Mathf.Max(maxX, screenPoint.x);
-            maxY = Mathf.Max(maxY, screenPoint.y);
-        }
-
-        int x = Mathf.RoundToInt(minX);
-        int y = Mathf.RoundToInt(minY);
-        int width = Mathf.RoundToInt(maxX - minX);
-        int height = Mathf.RoundToInt(maxY - minY);
-
-        width = Mathf.Clamp(width, 1, Screen.width);
-        height = Mathf.Clamp(height, 1, Screen.height);
-
-        x = Mathf.Clamp(x, 0, Screen.width - width);
-        y = Mathf.Clamp(y, 0, Screen.height - height);
-
-        Texture2D tex = new Texture2D(width, height, TextureFormat.RGB24, false);
-
-        try
-        {
-            tex.ReadPixels(new Rect(x, y, width, height), 0, 0);
-            tex.Apply();
-            Debug.Log($"✅ Captured {width}x{height}");
-            return tex;
-        }
-        catch (System.Exception e)
-        {
-            Debug.LogError($"❌ Capture failed: {e.Message}");
-            Destroy(tex);
-            return null;
-        }
-    }
-
     private void SaveTextureToFile(Texture2D texture, string filename)
     {
         byte[] bytes = texture.EncodeToPNG();
@@ -521,19 +462,8 @@ public class PhotoShootingManager : MonoBehaviour
         Debug.Log($"💾 Debug: Saved texture to: {path}");
     }
 
-    private string GetFullPath(Transform transform)
-    {
-        string path = transform.name;
-        while (transform.parent != null)
-        {
-            transform = transform.parent;
-            path = transform.name + "/" + path;
-        }
-        return path;
-    }
-
     // ============================================================
-    // 🆕 MAIN FRAME COMPOSITION METHOD WITH AUTO-PRINT
+    // UPDATED MAIN COMPOSITION WITH DISPLAY → PRINT → RESET FLOW
     // ============================================================
     private IEnumerator ApplyPhotosWithFrame()
     {
@@ -575,7 +505,7 @@ public class PhotoShootingManager : MonoBehaviour
         }
         if (frameTex == null) frameTex = Texture2D.grayTexture;
 
-        // 🆕 DETERMINE FRAME ORIENTATION FROM JSON OR ASPECT RATIO
+        // Determine frame orientation
         string frameType = DetermineFrameOrientation(frameTex);
         Debug.Log($"🖼️ Frame orientation: {frameType} ({frameTex.width}x{frameTex.height})");
 
@@ -603,18 +533,18 @@ public class PhotoShootingManager : MonoBehaviour
         }
 
         // Map beautified images correctly using uniqueIndices
-        var photoByIndex = new Dictionary<int, Texture2D>();
+        var photoByIndexLocal = new Dictionary<int, Texture2D>();
         for (int i = 0; i < UiController.Instance.beautifiedImages.Count; i++)
         {
             int index = uniqueIndices[i];
-            photoByIndex[index] = UiController.Instance.beautifiedImages[i];
+            photoByIndexLocal[index] = UiController.Instance.beautifiedImages[i];
         }
 
         // Place all photos (including duplicates)
         foreach (var ph in placeholders)
         {
             if (ph.placeholder_index <= 0) continue;
-            if (!photoByIndex.TryGetValue(ph.placeholder_index, out Texture2D photo)) continue;
+            if (!photoByIndexLocal.TryGetValue(ph.placeholder_index, out Texture2D photo)) continue;
 
             float w = float.Parse(ph.width);
             float h = float.Parse(ph.height);
@@ -660,13 +590,12 @@ public class PhotoShootingManager : MonoBehaviour
         Canvas.ForceUpdateCanvases();
         yield return new WaitForEndOfFrame();
 
-        // CRITICAL: Hide loading panel BEFORE capture
-        bool wasLoadingActive = loadingPanel != null && loadingPanel.activeSelf;
-        if (wasLoadingActive) loadingPanel.SetActive(false);
+        // Hide loading panel BEFORE capture
+        if (loadingPanel != null) loadingPanel.SetActive(false);
 
         yield return new WaitForEndOfFrame();
 
-        // 🆕 CAPTURE ONLY THE capturedImages TRANSFORM (no white space)
+        // Capture the final composed image
         finalComposedImageForPrint = CaptureTransformContent(capturedImagesParent);
 
 #if UNITY_EDITOR
@@ -674,29 +603,41 @@ public class PhotoShootingManager : MonoBehaviour
             SaveTextureToFile(finalComposedImageForPrint, "DEBUG_FINAL_PHOTO_WITH_FRAME.png");
 #endif
 
-        // 🆕 AUTO-PRINT WITH FRAME TYPE
+        // STEP 1: SHOW FRAME DISPLAY FOR 5 SECONDS
+        Debug.Log($"🖼️ Displaying frame with photos for {previewDurationSeconds} seconds...");
+
+        // Keep the instantiated frame visible
+        if (instantiatedFrameObject != null)
+            instantiatedFrameObject.SetActive(true);
+
+        // Wait for preview duration
+        yield return new WaitForSeconds(previewDurationSeconds);
+
+        // STEP 2: START PRINTING PROCESS
         if (finalComposedImageForPrint != null && autoPrintAfterCapture)
         {
-            Debug.Log($"🖨️ AUTO-PRINT: Sending {frameType} frame to printer...");
+            Debug.Log($"🖨️ Starting print process for {frameType} frame...");
 
             if (PrintingManager.Instance != null)
             {
+                // This will handle the printing panel states internally
                 PrintingManager.Instance.PrintFinalImage(finalComposedImageForPrint, frameType);
+
+                // Wait for printing to complete
+                yield return new WaitUntil(() => PrintingManager.Instance.IsPrintingComplete());
+
+                Debug.Log("✅ Printing workflow completed!");
             }
             else
             {
                 Debug.LogError("❌ PrintingManager.Instance is null! Cannot auto-print.");
             }
         }
-        else if (!autoPrintAfterCapture)
-        {
-            Debug.Log("⏸️ Auto-print is disabled. User must click print button manually.");
-        }
 
-        // Re-enable loading panel during upload
-        if (wasLoadingActive) loadingPanel.SetActive(true);
+        // Show loading during upload
+        if (loadingPanel != null) loadingPanel.SetActive(true);
 
-        // Upload the correct image
+        // Upload the image
         string userId = PlayerPrefs.GetString("user_id", "");
         if (!string.IsNullOrEmpty(userId))
         {
@@ -710,13 +651,16 @@ public class PhotoShootingManager : MonoBehaviour
                 PaymentManager.Instance.currentOrderId = null;
         }
 
-        // Finally hide loading when everything is done
+        // Hide loading
         if (loadingPanel != null) loadingPanel.SetActive(false);
 
-        Debug.Log($"✅ Final {frameType} photo ready, printed, and uploaded!");
+        Debug.Log($"✅ Complete workflow finished!");
+
+        // STEP 3: RETURN TO LOGIN SCREEN
+        yield return new WaitForSeconds(0.5f);
+        ResetToLoginScreen();
     }
 
-    // 🆕 ADD THIS NEW METHOD to PhotoShootingManager.cs
     /// <summary>
     /// Determines if frame is portrait or landscape based on JSON type or dimensions
     /// </summary>
@@ -725,7 +669,7 @@ public class PhotoShootingManager : MonoBehaviour
         if (frameTexture == null)
             return "portrait";
 
-        // 1. Check from JSON if available
+        // Check from JSON if available
         if (currentFrameItem?.frameData != null)
         {
             string type = currentFrameItem.frameData.type;
@@ -736,10 +680,10 @@ public class PhotoShootingManager : MonoBehaviour
             }
         }
 
-        // 2. Fallback: analyze dimensions
+        // Fallback: analyze dimensions
         float aspectRatio = (float)frameTexture.width / frameTexture.height;
 
-        if (aspectRatio > 1.1f) // Significantly wider than tall
+        if (aspectRatio > 1.1f)
         {
             Debug.Log($"📐 Detected LANDSCAPE from aspect ratio: {aspectRatio:F2}");
             return "landscape";
@@ -751,9 +695,8 @@ public class PhotoShootingManager : MonoBehaviour
         }
     }
 
-    // 🆕 ADD THIS NEW METHOD to PhotoShootingManager.cs
     /// <summary>
-    /// Captures ONLY the content of capturedImages transform (no extra white space)
+    /// Captures ONLY the content of capturedImages transform
     /// </summary>
     private Texture2D CaptureTransformContent(Transform target)
     {
@@ -770,15 +713,12 @@ public class PhotoShootingManager : MonoBehaviour
             return null;
         }
 
-        // Force canvas update
         Canvas.ForceUpdateCanvases();
         LayoutRebuilder.ForceRebuildLayoutImmediate(rectTransform);
 
-        // Get world corners
         Vector3[] corners = new Vector3[4];
         rectTransform.GetWorldCorners(corners);
 
-        // Find camera
         Camera cam = Camera.main;
         if (cam == null)
         {
@@ -787,7 +727,6 @@ public class PhotoShootingManager : MonoBehaviour
                 cam = canvas.worldCamera;
         }
 
-        // Calculate screen bounds
         float minX = float.MaxValue, minY = float.MaxValue;
         float maxX = float.MinValue, maxY = float.MinValue;
 
@@ -805,7 +744,6 @@ public class PhotoShootingManager : MonoBehaviour
         int width = Mathf.RoundToInt(maxX - minX);
         int height = Mathf.RoundToInt(maxY - minY);
 
-        // Clamp to screen bounds
         width = Mathf.Clamp(width, 1, Screen.width);
         height = Mathf.Clamp(height, 1, Screen.height);
         x = Mathf.Clamp(x, 0, Screen.width - width);
@@ -828,5 +766,57 @@ public class PhotoShootingManager : MonoBehaviour
             Destroy(tex);
             return null;
         }
+    }
+
+    /// <summary>
+    /// Resets the entire system to login screen for next customer
+    /// </summary>
+    private void ResetToLoginScreen()
+    {
+        Debug.Log("🔄 Resetting to login screen for next customer...");
+
+        // Clear all captured data
+        capturedPhotos.Clear();
+        photoByIndex.Clear();
+        uniqueIndices.Clear();
+        placeholders.Clear();
+        currentShotIndex = 0;
+        currentFrameItem = null;
+
+        // Clear beautified images
+        if (UiController.Instance != null)
+            UiController.Instance.beautifiedImages.Clear();
+
+        // Destroy instantiated frame object
+        if (instantiatedFrameObject != null)
+            Destroy(instantiatedFrameObject);
+
+        // Clean up textures
+        if (finalComposedImageForPrint != null)
+        {
+            Destroy(finalComposedImageForPrint);
+            finalComposedImageForPrint = null;
+        }
+
+        // Clear user session
+        PlayerPrefs.DeleteKey("user_id");
+        PlayerPrefs.DeleteKey("user_name");
+        PlayerPrefs.DeleteKey("user_email");
+        PlayerPrefs.DeleteKey("session_id");
+        PlayerPrefs.Save();
+
+        // Close all panels except QR/Login
+        if (photoShootPanel != null) photoShootPanel.SetActive(false);
+        if (beautificationPanel != null) beautificationPanel.SetActive(false);
+        if (photoPreviewPanel != null) photoPreviewPanel.SetActive(false);
+        if (loadingPanel != null) loadingPanel.SetActive(false);
+
+        // Activate login panel through LoginManager
+        if (LoginManager.Instance != null)
+        {
+            LoginManager.Instance.ResetToLoginPanel();
+        }
+
+        Debug.Log("✅ System reset complete - Ready for next customer!");
     }
 }
