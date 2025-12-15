@@ -35,8 +35,10 @@ public class PhotoBoothFrameManager : MonoBehaviour
     public ScrollRect scrollRect;
     public Button nextButton;
     public Button prevButton;
-    public float scrollStep = 1f;
+    public int framesPerPage = 6; // Number of frames visible per page
     public int minFramesForScroll = 6; // Configurable threshold
+    private int currentPage = 0;
+    private int totalPages = 0;
 
     [Header("API")]
     public string apiBaseURL = "http://photo-stg-api.chvps3.aozora-okinawa.com/";
@@ -132,8 +134,43 @@ public class PhotoBoothFrameManager : MonoBehaviour
         scrollRect.horizontalNormalizedPosition = target;
     }
 
-    void OnNextClicked() => StartCoroutine(ScrollTo(Mathf.Clamp01(scrollRect.horizontalNormalizedPosition + scrollStep)));
-    void OnPrevClicked() => StartCoroutine(ScrollTo(Mathf.Clamp01(scrollRect.horizontalNormalizedPosition - scrollStep)));
+    void OnNextClicked()
+    {
+        if (currentPage < totalPages - 1)
+        {
+            currentPage++;
+            float targetPosition = (float)currentPage / (totalPages - 1);
+            StartCoroutine(ScrollTo(targetPosition));
+            UpdateNavigationButtons();
+        }
+    }
+
+    void OnPrevClicked()
+    {
+        if (currentPage > 0)
+        {
+            currentPage--;
+            float targetPosition = currentPage == 0 ? 0f : (float)currentPage / (totalPages - 1);
+            StartCoroutine(ScrollTo(targetPosition));
+            UpdateNavigationButtons();
+        }
+    }
+
+    private void UpdateNavigationButtons()
+    {
+        if (prevButton != null)
+            prevButton.interactable = currentPage > 0;
+
+        if (nextButton != null)
+            nextButton.interactable = currentPage < totalPages - 1;
+    }
+
+    private void CalculateTotalPages(int frameCount)
+    {
+        totalPages = Mathf.CeilToInt((float)frameCount / framesPerPage);
+        currentPage = 0;
+        UpdateNavigationButtons();
+    }
 
     public void SetBoothID(string id) => boothID = id;
 
@@ -295,6 +332,12 @@ public class PhotoBoothFrameManager : MonoBehaviour
 
         if (prevButton != null)
             prevButton.gameObject.SetActive(shouldShowScrollButtons);
+
+        // Calculate pages and reset to first page
+        if (shouldShowScrollButtons)
+        {
+            CalculateTotalPages(frameCount);
+        }
     }
 
     private void ShowEmptyState(string message = "No frames")
@@ -599,10 +642,6 @@ public class PhotoBoothFrameManager : MonoBehaviour
         target.localScale = targetScale;
     }
 
-    private string GenerateOrderID()
-    {
-        // Example: "ORDER" + timestamp + random 4 digits
-        return "ORDER-" + System.DateTime.UtcNow.ToString("yyyyMMddHHmmss") + "-" + Random.Range(1000, 9999);
-    }
+    
 
 }

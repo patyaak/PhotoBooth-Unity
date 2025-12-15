@@ -4224,7 +4224,8 @@ MonoBehaviour:
   scrollRect: {fileID: 7294520440714471471}
   nextButton: {fileID: 1385672666}
   prevButton: {fileID: 441805084}
-  scrollStep: 1
+  framesPerPage: 6
+  minFramesForScroll: 6
   apiBaseURL: http://photo-stg-api.chvps3.aozora-okinawa.com/
   cachedResponse:
     success: 0
