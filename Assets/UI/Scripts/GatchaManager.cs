@@ -34,6 +34,9 @@ public class GatchaManager : MonoBehaviour
     private List<Frame> gachaFrames = new List<Frame>();
     private Frame clickedResultFrame;
 
+    // ✅ NEW: Track if payment completed for this gacha session
+    private bool paymentCompletedForCurrentSession = false;
+
     void Awake()
     {
         if (Instance == null) Instance = this;
@@ -44,6 +47,9 @@ public class GatchaManager : MonoBehaviour
 
     public void ShowGatchaButtons()
     {
+        // ✅ For free gacha, mark payment as "completed" (bypass mode)
+        paymentCompletedForCurrentSession = true;
+
         darkpanel.SetActive(true);
         gatchaButtons.SetActive(false);
         PhotoBoothFrameManager.Instance.playButton.gameObject.SetActive(false);
@@ -53,6 +59,9 @@ public class GatchaManager : MonoBehaviour
 
     public void PlayGatchaAnimation()
     {
+        // ✅ For free gacha, mark payment as "completed" (bypass mode)
+        paymentCompletedForCurrentSession = true;
+
         darkpanel.SetActive(true);
         gatchaButtons.SetActive(false);
         PhotoBoothFrameManager.Instance.playButton.gameObject.SetActive(false);
@@ -63,6 +72,9 @@ public class GatchaManager : MonoBehaviour
     public void PlayGatchaAnimationAfterPayment()
     {
         Debug.Log("🎰 Starting gacha animation after payment");
+
+        // ✅ MARK PAYMENT AS COMPLETED FOR THIS SESSION
+        paymentCompletedForCurrentSession = true;
 
         darkpanel.SetActive(true);
         gatchaButtons.SetActive(false);
@@ -109,6 +121,7 @@ public class GatchaManager : MonoBehaviour
             {
                 btn.interactable = true;
                 btn.onClick.RemoveAllListeners();
+                // ✅ ALWAYS use AfterPayment handler (payment flag already set)
                 btn.onClick.AddListener(() => OnGachaChildButtonClickedAfterPayment(index));
             }
         }
@@ -116,7 +129,14 @@ public class GatchaManager : MonoBehaviour
 
     private void OnGachaChildButtonClickedAfterPayment(int buttonIndex)
     {
-        Debug.Log($"🎰 Gacha button {buttonIndex} clicked (payment already done)");
+        Debug.Log($"🎰 Gacha button {buttonIndex} clicked (payment already done: {paymentCompletedForCurrentSession})");
+
+        // ✅ VERIFY payment was completed
+        if (!paymentCompletedForCurrentSession)
+        {
+            Debug.LogError("❌ Payment not completed! Blocking reveal.");
+            return;
+        }
 
         // Proceed directly to reveal
         foreach (Transform child in gatchaButtons.transform)
@@ -147,7 +167,8 @@ public class GatchaManager : MonoBehaviour
             {
                 btn.interactable = true;
                 btn.onClick.RemoveAllListeners();
-                btn.onClick.AddListener(() => OnGachaChildButtonClicked(index));
+                // ✅ ALWAYS use AfterPayment handler (payment flag already set)
+                btn.onClick.AddListener(() => OnGachaChildButtonClickedAfterPayment(index));
             }
         }
     }
@@ -186,20 +207,10 @@ public class GatchaManager : MonoBehaviour
             {
                 btn.interactable = true;
                 btn.onClick.RemoveAllListeners();
-                btn.onClick.AddListener(() => OnGachaChildButtonClicked(index));
+                // ✅ ALWAYS use AfterPayment handler (payment flag already set)
+                btn.onClick.AddListener(() => OnGachaChildButtonClickedAfterPayment(index));
             }
         }
-    }
-
-    private void OnGachaChildButtonClicked(int buttonIndex)
-    {
-        Debug.Log($"🎰 Gacha button {buttonIndex} clicked");
-
-        // Proceed directly to reveal
-        foreach (Transform child in gatchaButtons.transform)
-            child.GetComponent<Button>().interactable = false;
-
-        StartCoroutine(ShakeThenReveal(buttonIndex));
     }
 
     public void ContinueGachaAfterPayment(int buttonIndex)
@@ -277,9 +288,17 @@ public class GatchaManager : MonoBehaviour
 
         if (!useCache)
         {
-            yield return LoggedWebRequest.Get(url, (request) =>
+            yield return ServerAwareWebRequest.Get(url, (request) =>
             {
-                if (request.result == UnityWebRequest.Result.Success)
+                if (ServerAwareWebRequest.IsConnectivityError(request))
+                {
+                    Debug.LogWarning("⚠️ Server connectivity issue during gacha → using cache");
+                    useCache = true;
+                    StartCoroutine(LoadFromCacheFallback(index));
+                    return;
+                }
+
+                if (ServerAwareWebRequest.IsSuccess(request))
                 {
                     string jsonResponse = request.downloadHandler.text;
                     GachaFrameResponse response = JsonUtility.FromJson<GachaFrameResponse>(jsonResponse);
@@ -325,7 +344,6 @@ public class GatchaManager : MonoBehaviour
         Debug.LogWarning("No cached data available for Gacha fallback.");
     }
 
-
     private IEnumerator LoadFromCacheFallback(int index)
     {
         if (FrameCacheManager.HasCachedData("gacha"))
@@ -346,6 +364,7 @@ public class GatchaManager : MonoBehaviour
             }
         }
     }
+
     private IEnumerator RevealRemainingRandomFrames(int revealedIndex)
     {
         yield return new WaitForSeconds(0.2f);
@@ -604,6 +623,29 @@ public class GatchaManager : MonoBehaviour
         gachaFrames = new List<Frame>(frames);
     }
 
+    // ✅ NEW: Reset method to clear payment state for next customer
+    public void ResetGachaSession()
+    {
+        Debug.Log("🔄 Resetting gacha session for next customer");
+
+        paymentCompletedForCurrentSession = false;
+        clickedResultFrame = null;
+        ClearSpawnedFramesInstant();
+        gachaFrames.Clear();
+
+        if (gatchaButtons != null)
+            gatchaButtons.SetActive(false);
+
+        if (gatchaWin != null)
+            gatchaWin.SetActive(false);
+
+        if (darkpanel != null)
+            darkpanel.SetActive(false);
+
+        if (darkpanel1 != null)
+            darkpanel1.SetActive(false);
+    }
+
     private IEnumerator ShowGatchaWinPanel(Frame resultFrame)
     {
         if (gatchaWin == null || winFrameParent == null)
@@ -720,14 +762,22 @@ public class GatchaManager : MonoBehaviour
             yield return null;
         }
 
-        // SELECT the frame BEFORE closing win panel
+        // ✅ FIX: Don't call OnDecideButtonClicked - directly continue to shooting
         if (item != null)
         {
-            Debug.Log("🎯 Selecting gacha frame: " + resultFrame.frame_id);
+            Debug.Log("🎯 Gacha frame selected: " + resultFrame.frame_id);
             PhotoBoothFrameManager.Instance.SelectFrame(item);
+
+            // ✅ Get the order_id from PaymentManager
+            string orderId = PaymentManager.Instance?.currentOrderId;
+
+            Debug.Log("🎬 Starting shooting directly with gacha frame");
+
+            // ✅ Call ContinueAfterPayment directly - skip payment flow
+            PhotoBoothFrameManager.Instance.ContinueAfterPayment(item, orderId);
         }
 
-        // Clear payment state
+        // Clear payment state AFTER continuing
         if (PaymentManager.Instance != null)
         {
             Debug.Log("🎰 Notifying PaymentManager: gacha reveal complete");
@@ -736,13 +786,6 @@ public class GatchaManager : MonoBehaviour
 
         // Close win panel
         gatchaWin.SetActive(false);
-        Debug.Log("✅ Gacha win panel closed");
-
-        // Small delay to ensure everything is ready
-        yield return new WaitForSeconds(0.2f);
-
-        // Trigger decide button
-        Debug.Log("🎯 Triggering OnDecideButtonClicked for gacha frame");
-        PhotoBoothFrameManager.Instance.OnDecideButtonClicked();
+        Debug.Log("✅ Gacha win panel closed - shooting should start");
     }
 }

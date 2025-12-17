@@ -239,6 +239,7 @@ public class DeviceRegistration : MonoBehaviour
     }
 
     [Serializable]
+
     public class DeviceResponse
     {
         public bool success;

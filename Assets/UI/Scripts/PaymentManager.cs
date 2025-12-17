@@ -42,7 +42,7 @@ public class PaymentManager : MonoBehaviour
     public PaymentType currentPaymentType { get; private set; } = PaymentType.None;
     private int pendingGachaButtonIndex = -1;
     private FrameItem frameAfterPayment;
-    public string currentOrderId; // This is now preserved until after photo upload
+    public string currentOrderId;
 
     private WebSocket ws;
     private bool isWebSocketConnected = false;
@@ -80,7 +80,6 @@ public class PaymentManager : MonoBehaviour
             return;
         }
 
-        // MYFRAME FIX: Should never reach here, but added as safeguard
         if (frameType == "myframe")
         {
             Debug.LogWarning("⚠️ Payment attempted for myframe - this should be handled before reaching PaymentManager");
@@ -91,7 +90,6 @@ public class PaymentManager : MonoBehaviour
 
         currentFrameId = selectedFrame.frameData.frame_id;
 
-        // LOG: Payment initiated
         LoggingManager.Instance?.LogPayment(
             orderId: System.Guid.NewGuid().ToString(),
             paymentType: "frame",
@@ -117,6 +115,7 @@ public class PaymentManager : MonoBehaviour
     public void InitiateGachaPayment(string boothId, int buttonIndex, string price)
     {
         if (string.IsNullOrEmpty(boothId)) return;
+
         int paymentsEnabledInt = PlayerPrefs.GetInt("payments_enabled", 0);
         paymentActive = paymentsEnabledInt == 1;
 
@@ -130,15 +129,11 @@ public class PaymentManager : MonoBehaviour
         StartCoroutine(InitiatePaymentRequest());
     }
 
-    // Called by external code when reveal/flow finishes to ensure payment won't re-trigger
     public void OnGachaRevealComplete()
     {
         Debug.Log("[PaymentManager] OnGachaRevealComplete - clearing payment state for gacha");
 
-        // Clear payment state but KEEP the gacha flow flag
-        // The flag will be cleared when shooting actually starts
         pendingGachaButtonIndex = -1;
-        // NOTE: We DON'T clear currentOrderId here - it's needed for photo upload
         currentPaymentType = PaymentType.None;
 
         if (paymentPanel != null && paymentPanel.activeSelf)
@@ -222,13 +217,28 @@ public class PaymentManager : MonoBehaviour
             }
             else
             {
-                // Payment OFF → proceed immediately
                 Debug.Log("💡 Payment OFF → skipping QR/WS, continuing after order_id generation");
-                frameManager?.ContinueAfterPayment(frameAfterPayment);
+
+                // ✅ For gacha without payment, set the flag immediately
+                if (currentPaymentType == PaymentType.Gacha)
+                {
+                    isInGachaFlow = true;
+                    string boothIdToUse = currentBoothId;
+                    ResetPaymentState();
+
+                    if (!string.IsNullOrEmpty(boothIdToUse))
+                    {
+                        gatchaManager?.SetBoothID(boothIdToUse);
+                        gatchaManager?.PlayGatchaAnimationAfterPayment();
+                    }
+                }
+                else
+                {
+                    frameManager?.ContinueAfterPayment(frameAfterPayment);
+                }
             }
         });
     }
-
     #endregion
 
     #region QR Code
@@ -291,7 +301,6 @@ public class PaymentManager : MonoBehaviour
                 {
                     JObject dataObj = null;
 
-                    // Handle stringified JSON
                     if (j["data"].Type == JTokenType.String)
                         dataObj = JObject.Parse(j["data"].ToString());
                     else if (j["data"].Type == JTokenType.Object)
@@ -339,7 +348,6 @@ public class PaymentManager : MonoBehaviour
     #region Payment Handlers
     private void OnPaymentSuccess()
     {
-        // LOG: Payment success
         LoggingManager.Instance?.LogPayment(
             orderId: currentOrderId,
             paymentType: currentPaymentType == PaymentType.Frame ? "frame" : "gacha",
@@ -357,22 +365,21 @@ public class PaymentManager : MonoBehaviour
     {
         yield return new WaitForSeconds(1f);
 
-        // Hide UI first
         if (paymentPanel != null) paymentPanel.SetActive(false);
 
         if (currentPaymentType == PaymentType.Frame && frameAfterPayment != null)
         {
             var frameToContinue = frameAfterPayment;
-            ResetPaymentState(); // This now preserves currentOrderId
+            ResetPaymentState();
             frameManager?.ContinueAfterPayment(frameToContinue);
         }
         else if (currentPaymentType == PaymentType.Gacha)
         {
-            // Set the gacha flow flag BEFORE clearing payment state
+            // ✅ Set the gacha flow flag BEFORE clearing payment state
             isInGachaFlow = true;
 
             string boothIdToUse = currentBoothId;
-            ResetPaymentState(); // This now preserves currentOrderId
+            ResetPaymentState();
 
             Debug.Log("✅ Payment complete for gacha - gacha flow flag SET");
 
@@ -387,12 +394,11 @@ public class PaymentManager : MonoBehaviour
             ResetPaymentState();
         }
 
-        CloseWebSocketAsync();
+        _ = CloseWebSocketAsync();
     }
 
     private void OnPaymentFailed(string message)
     {
-        // LOG: Payment failed
         LoggingManager.Instance?.LogPayment(
             orderId: currentOrderId,
             paymentType: currentPaymentType == PaymentType.Frame ? "frame" : "gacha",
@@ -406,7 +412,7 @@ public class PaymentManager : MonoBehaviour
         Debug.LogWarning("❌ Payment Failed: " + message);
         StartCoroutine(AutoClosePanel());
 
-        CloseWebSocketAsync();
+        _ = CloseWebSocketAsync();
     }
 
     private IEnumerator AutoClosePanel()
@@ -421,27 +427,21 @@ public class PaymentManager : MonoBehaviour
         Debug.Log("❌ Payment cancelled by user");
         if (paymentPanel != null) paymentPanel.SetActive(false);
         ResetPaymentState();
-        CloseWebSocketAsync();
+        _ = CloseWebSocketAsync();
     }
 
-    // Made public so other managers (like GatchaManager) can ensure state is cleared when needed
-    // NOTE: currentOrderId is NOT cleared here - it's cleared after photo upload completes in PhotoShootingManager
     public void ResetPaymentState()
     {
         currentBoothId = null;
         currentPrice = 0f;
         pendingGachaButtonIndex = -1;
         frameAfterPayment = null;
-        // DON'T clear currentOrderId here - it's needed for photo upload after shooting
-        // It will be cleared in PhotoShootingManager after the upload completes
-        // currentOrderId = null;  // ← INTENTIONALLY COMMENTED OUT
         currentPaymentType = PaymentType.None;
         currentFrameType = "default";
         currentFrameId = null;
 
         Debug.Log($"ℹ️ Payment state reset (order_id preserved: {currentOrderId})");
     }
-
 
     public void InitiateFramePaymentForDecide(string boothId, FrameItem selectedFrame, string price, string frameType = "default")
     {
@@ -458,7 +458,6 @@ public class PaymentManager : MonoBehaviour
         int paymentsEnabledInt = PlayerPrefs.GetInt("payments_enabled", 0);
         bool paymentsEnabled = paymentsEnabledInt == 1;
 
-        // ✅ Skip payment panel for myframe
         if (frameType == "myframe")
         {
             paymentActive = false;
@@ -475,11 +474,8 @@ public class PaymentManager : MonoBehaviour
             Debug.Log("💡 Payment is OFF - initiating order_id generation only");
         }
 
-        // Hit backend API for payment initiation (even if payment is OFF)
         StartCoroutine(InitiatePaymentRequest());
     }
-
-
     #endregion
 
     #region Data Classes

@@ -96,7 +96,10 @@ public class LoginManager : MonoBehaviour
         if (blockImg != null) blockImg.SetActive(false);
 
         //show back button
-        frameManager.backButton.gameObject.SetActive(true);
+        if (frameManager != null && frameManager.backButton != null)
+        {
+            frameManager.backButton.gameObject.SetActive(true);
+        }
 
         // Show QR panel
         if (qrPanel != null) qrPanel.SetActive(false);
@@ -131,7 +134,8 @@ public class LoginManager : MonoBehaviour
         if (GatchaManager.Instance != null)
         {
             GatchaManager.Instance.ClearSpawnedFramesInstant();
-            GatchaManager.Instance.celebration.SetActive(false); 
+            GatchaManager.Instance.celebration.SetActive(false);
+            GatchaManager.Instance.ResetGachaSession();
         }
 
         Debug.Log("✅ Ready for next customer!");
@@ -147,57 +151,155 @@ public class LoginManager : MonoBehaviour
         autoRefreshRoutine = StartCoroutine(AutoRefreshQR());
     }
 
+    // UPDATED LoginManager.cs - KEY CHANGES ONLY
+    // Replace the RequestQRToken method with this updated version:
+
     IEnumerator RequestQRToken()
     {
         string url = $"{baseUrl}/api/qr-login/issue";
         QRRequestData data = new QRRequestData(boothId, ttlSeconds);
         string json = JsonUtility.ToJson(data);
 
-        yield return LoggedWebRequest.Post(url, json, (request) =>
+        Debug.Log($"🔵 Requesting QR Token from: {url}");
+        Debug.Log($"📤 Request payload: {json}");
+
+        // ✅ CHANGED: Use ServerAwareWebRequest instead of LoggedWebRequest
+        yield return ServerAwareWebRequest.Post(url, json, (request) =>
         {
+            // ✅ CHANGED: Check for connectivity errors
+            if (ServerAwareWebRequest.IsConnectivityError(request))
+            {
+                Debug.LogError("❌ Server connectivity issue detected during QR request");
+                ShowErrorMessage("Server connection failed. Please check your network.");
+                return;
+            }
+
             if (request.result == UnityWebRequest.Result.Success)
             {
-                QRResponse res = JsonUtility.FromJson<QRResponse>(request.downloadHandler.text);
-                currentToken = res.data.token;
-                GenerateQRCode(currentToken);
-                ConnectWebSocket();
+                string responseText = request.downloadHandler.text;
+                Debug.Log($"✅ QR Token Response (Raw): {responseText}");
+
+                try
+                {
+                    // Validate response is not empty
+                    if (string.IsNullOrEmpty(responseText))
+                    {
+                        Debug.LogError("❌ Server returned empty response");
+                        ShowErrorMessage("Server returned empty response");
+                        return;
+                    }
+
+                    // Try to parse the response
+                    QRResponse res = JsonUtility.FromJson<QRResponse>(responseText);
+
+                    // Validate parsed data
+                    if (res == null)
+                    {
+                        Debug.LogError("❌ Failed to parse QR response - result is null");
+                        ShowErrorMessage("Invalid server response format");
+                        return;
+                    }
+
+                    if (res.data == null)
+                    {
+                        Debug.LogError("❌ QR response data is null");
+                        Debug.LogError($"Response object: success={res.success}, data=null");
+                        ShowErrorMessage("Invalid server response data");
+                        return;
+                    }
+
+                    if (string.IsNullOrEmpty(res.data.token))
+                    {
+                        Debug.LogError("❌ Token is empty in response");
+                        Debug.LogError($"Response data: token_id={res.data.token_id}, booth_id={res.data.booth_id}");
+                        ShowErrorMessage("No token received from server");
+                        return;
+                    }
+
+                    // Success - process the token
+                    currentToken = res.data.token;
+                    Debug.Log($"✅ Token received: {currentToken}");
+                    Debug.Log($"📋 Token ID: {res.data.token_id}");
+                    Debug.Log($"⏰ Expires at: {res.data.expires_at}");
+
+                    GenerateQRCode(currentToken);
+                    ConnectWebSocket();
+                }
+                catch (ArgumentException ex)
+                {
+                    Debug.LogError($"❌ JSON Parse Error: {ex.Message}");
+                    Debug.LogError($"📄 Response that failed to parse: {responseText}");
+                    Debug.LogError($"🔍 Response length: {responseText.Length} characters");
+
+                    // Check if response looks like HTML
+                    if (responseText.TrimStart().StartsWith("<"))
+                    {
+                        Debug.LogError("⚠️ Server returned HTML instead of JSON (possibly an error page)");
+                    }
+
+                    ShowErrorMessage("Failed to parse server response");
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogError($"❌ Unexpected error processing QR response: {ex.Message}");
+                    Debug.LogError($"📄 Stack trace: {ex.StackTrace}");
+                    ShowErrorMessage("Unexpected error occurred");
+                }
             }
             else
             {
-                Debug.LogError("QR Token Request Failed: " + request.error);
-                Debug.LogError("Response: " + request.downloadHandler.text);
+                Debug.LogError($"❌ QR Token Request Failed: {request.error}");
+                Debug.LogError($"📄 Response Code: {request.responseCode}");
+                Debug.LogError($"📄 Response: {request.downloadHandler.text}");
+                ShowErrorMessage($"Request failed: {request.error}");
             }
         });
     }
-
     IEnumerator AutoRefreshQR()
     {
         float delay = Mathf.Max(10f, ttlSeconds - 20f);
+        Debug.Log($"🔄 Auto-refresh QR every {delay} seconds");
+
         while (true)
         {
             yield return new WaitForSeconds(delay);
             if (!string.IsNullOrEmpty(currentToken))
+            {
+                Debug.Log("🔄 Auto-refreshing QR token...");
                 yield return RequestQRToken();
+            }
         }
     }
 
     private void GenerateQRCode(string token)
     {
-        var writer = new BarcodeWriter<Texture2D>
+        try
         {
-            Format = BarcodeFormat.QR_CODE,
-            Options = new ZXing.Common.EncodingOptions
-            {
-                Width = 512,
-                Height = 512,
-                Margin = 0
-            },
-            Renderer = new ZXing.Rendering.Texture2DRenderer()
-        };
+            Debug.Log($"📱 Generating QR code for token: {token}");
 
-        Texture2D tex = writer.Write(token);
-        qrImage.texture = tex;
-        qrImage.rectTransform.sizeDelta = new Vector2(400, 400);
+            var writer = new BarcodeWriter<Texture2D>
+            {
+                Format = BarcodeFormat.QR_CODE,
+                Options = new ZXing.Common.EncodingOptions
+                {
+                    Width = 512,
+                    Height = 512,
+                    Margin = 0
+                },
+                Renderer = new ZXing.Rendering.Texture2DRenderer()
+            };
+
+            Texture2D tex = writer.Write(token);
+            qrImage.texture = tex;
+            qrImage.rectTransform.sizeDelta = new Vector2(400, 400);
+
+            Debug.Log("✅ QR code generated successfully");
+        }
+        catch (Exception ex)
+        {
+            Debug.LogError($"❌ Failed to generate QR code: {ex.Message}");
+            ShowErrorMessage("Failed to generate QR code");
+        }
     }
 
     // WEBSOCKET
@@ -206,12 +308,14 @@ public class LoginManager : MonoBehaviour
     {
         if (string.IsNullOrEmpty(boothKey))
         {
-            Debug.LogError("boothKey is EMPTY!");
+            Debug.LogError("❌ boothKey is EMPTY!");
             return;
         }
 
         string protocol = useSecureWebSocket ? "wss" : "ws";
         string wsUrl = $"{protocol}://photo-stg-api.chvps3.aozora-okinawa.com/app/{boothKey}";
+
+        Debug.Log($"🔌 Connecting to WebSocket: {wsUrl}");
 
         await CloseWebSocketAsync();
 
@@ -220,13 +324,22 @@ public class LoginManager : MonoBehaviour
         ws.OnOpen += () =>
         {
             isWebSocketConnected = true;
-            Debug.Log("WebSocket Connected!");
+            Debug.Log("✅ WebSocket Connected!");
             if (!string.IsNullOrEmpty(currentToken))
                 SendSubscription(currentToken);
         };
 
-        ws.OnError += (e) => { Debug.LogError("WS Error: " + e); isWebSocketConnected = false; };
-        ws.OnClose += (code) => { Debug.LogWarning("WS Closed: " + code); isWebSocketConnected = false; };
+        ws.OnError += (e) =>
+        {
+            Debug.LogError($"❌ WS Error: {e}");
+            isWebSocketConnected = false;
+        };
+
+        ws.OnClose += (code) =>
+        {
+            Debug.LogWarning($"⚠️ WS Closed with code: {code}");
+            isWebSocketConnected = false;
+        };
 
         ws.OnMessage += (bytes) =>
         {
@@ -240,7 +353,7 @@ public class LoginManager : MonoBehaviour
         }
         catch (Exception ex)
         {
-            Debug.LogError("WS Connect Failed: " + ex.Message);
+            Debug.LogError($"❌ WS Connect Failed: {ex.Message}");
         }
     }
 
@@ -253,13 +366,13 @@ public class LoginManager : MonoBehaviour
         };
 
         string json = JsonUtility.ToJson(sub);
-        Debug.Log("Subscribing to: qr-login." + token);
+        Debug.Log($"📡 Subscribing to channel: qr-login.{token}");
         await ws.SendText(json);
     }
 
     private void HandleWebSocketMessage(string json)
     {
-        Debug.Log("WS Message: " + json);
+        Debug.Log($"📨 WS Message received: {json}");
 
         try
         {
@@ -267,46 +380,56 @@ public class LoginManager : MonoBehaviour
 
             if (envelope.@event == "pusher_internal:subscription_succeeded")
             {
-                Debug.Log("Subscribed to channel successfully!");
+                Debug.Log("✅ Subscribed to channel successfully!");
                 return;
             }
 
             if (envelope.@event == "user-logged-in")
             {
-                Debug.Log("USER LOGGED IN VIA QR SCAN!");
+                Debug.Log("🎉 USER LOGGED IN VIA QR SCAN!");
 
-                UserSessionWrapper wrapper = JsonUtility.FromJson<UserSessionWrapper>(envelope.data);
-
-                if (wrapper?.session == null)
+                try
                 {
-                    Debug.LogError("Failed to parse session: " + envelope.data);
-                    return;
+                    UserSessionWrapper wrapper = JsonUtility.FromJson<UserSessionWrapper>(envelope.data);
+
+                    if (wrapper?.session == null)
+                    {
+                        Debug.LogError($"❌ Failed to parse session data: {envelope.data}");
+                        return;
+                    }
+
+                    var s = wrapper.session;
+                    Debug.Log($"👤 Welcome {s.user_name} ({s.user_email})");
+
+                    PlayerPrefs.SetString("user_id", s.user_id);
+                    PlayerPrefs.SetString("user_name", s.user_name);
+                    PlayerPrefs.SetString("user_email", s.user_email);
+                    PlayerPrefs.SetString("session_id", s.session_id);
+                    PlayerPrefs.SetString("booth_id", s.booth_id);
+                    PlayerPrefs.Save();
+
+                    // LOG: User login
+                    if (LoggingManager.Instance != null)
+                    {
+                        LoggingManager.Instance.LogSystemEvent(
+                            message: $"User logged in: {s.user_name}",
+                            severity: LogSeverity.Info,
+                            details: JsonUtility.ToJson(s)
+                        );
+                    }
+
+                    ActivateFrameSelection(isGuest: false);
+                    CloseWebSocketAsync();
                 }
-
-                var s = wrapper.session;
-                Debug.Log($"Welcome {s.user_name} ({s.user_email})");
-
-                PlayerPrefs.SetString("user_id", s.user_id);
-                PlayerPrefs.SetString("user_name", s.user_name);
-                PlayerPrefs.SetString("user_email", s.user_email);
-                PlayerPrefs.SetString("session_id", s.session_id);
-                PlayerPrefs.SetString("booth_id", s.booth_id);
-                PlayerPrefs.Save();
-
-                // LOG: User login
-                LoggingManager.Instance?.LogSystemEvent(
-                    message: $"User logged in: {s.user_name}",
-                    severity: LogSeverity.Info,
-                    details: JsonUtility.ToJson(s)
-                );
-
-                ActivateFrameSelection(isGuest: false);
-                CloseWebSocketAsync();
+                catch (Exception ex)
+                {
+                    Debug.LogError($"❌ Error parsing user session: {ex.Message}");
+                }
             }
         }
         catch (Exception e)
         {
-            Debug.LogError("WS Parse Error: " + e.Message + "\nJSON: " + json);
+            Debug.LogError($"❌ WS Parse Error: {e.Message}\n📄 JSON: {json}");
         }
     }
 
@@ -318,12 +441,13 @@ public class LoginManager : MonoBehaviour
         {
             try
             {
-                Debug.Log("Closing WebSocket...");
+                Debug.Log("🔌 Closing WebSocket...");
                 await ws.Close();
+                Debug.Log("✅ WebSocket closed");
             }
             catch (Exception ex)
             {
-                Debug.LogWarning("WS close warning: " + ex.Message);
+                Debug.LogWarning($"⚠️ WS close warning: {ex.Message}");
             }
         }
 
@@ -339,21 +463,28 @@ public class LoginManager : MonoBehaviour
     // UI & FRAME SELECTION
     public void OnGuestBtnClick()
     {
+        Debug.Log("👤 Guest mode button clicked");
+
         PlayerPrefs.DeleteKey("user_id");
         PlayerPrefs.DeleteKey("user_name");
         PlayerPrefs.DeleteKey("session_id");
 
         // LOG: Guest mode
-        LoggingManager.Instance?.LogSystemEvent(
-            message: "Guest mode activated",
-            severity: LogSeverity.Info
-        );
+        if (LoggingManager.Instance != null)
+        {
+            LoggingManager.Instance.LogSystemEvent(
+                message: "Guest mode activated",
+                severity: LogSeverity.Info
+            );
+        }
 
         ActivateFrameSelection(isGuest: true);
     }
 
     private void ActivateFrameSelection(bool isGuest)
     {
+        Debug.Log($"🖼️ Activating frame selection (Guest: {isGuest})");
+
         qrPanel.SetActive(false);
         frameSelectionPanel.SetActive(true);
         lastActivityTime = Time.time;
@@ -364,7 +495,7 @@ public class LoginManager : MonoBehaviour
             frameManager.ResetToDefaultCategory();
         }
 
-        if (isGuest)
+        if (isGuest && frameManager != null && frameManager.myFrameButton != null)
         {
             frameManager.myFrameButton.interactable = false;
         }
@@ -375,10 +506,14 @@ public class LoginManager : MonoBehaviour
 
     IEnumerator FramePanelAutoClose()
     {
+        Debug.Log($"⏱️ Frame panel timeout started ({framePanelTimeoutSeconds}s)");
+
         while (frameSelectionPanel.activeSelf)
         {
             if (Time.time - lastActivityTime >= framePanelTimeoutSeconds)
             {
+                Debug.Log("⏱️ Frame selection timed out - returning to login");
+
                 // Close frame panel and return to login
                 frameSelectionPanel.SetActive(false);
                 paymentPanel.SetActive(false);
@@ -389,8 +524,6 @@ public class LoginManager : MonoBehaviour
                 PlayerPrefs.DeleteKey("session_id");
                 PlayerPrefs.Save();
 
-                Debug.Log("Frame selection timed out - returning to login");
-
                 // Return to login panel
                 ResetToLoginPanel();
 
@@ -400,25 +533,78 @@ public class LoginManager : MonoBehaviour
         }
     }
 
+    private void ShowErrorMessage(string message)
+    {
+        Debug.LogWarning($"⚠️ Showing error to user: {message}");
+        // You can implement a UI popup here to show the error to the user
+        // For example: errorMessageText.text = message; errorPanel.SetActive(true);
+    }
 
     // APPLICATION QUIT
-    private async void OnApplicationQuit()
+    public async void OnApplicationQuit()
     {
+        Debug.Log("🛑 Application quitting...");
         await CloseWebSocketAsync();
         await Task.Delay(100);
     }
 
 
     // SERIALIZABLE CLASSES
-    [Serializable] public class QRRequestData { public string booth_id; public int ttl_seconds; public QRRequestData(string id, int ttl) { booth_id = id; ttl_seconds = ttl; } }
-    [Serializable] public class QRResponse { public bool success; public QRData data; }
-    [Serializable] public class QRData { public string token; public string token_id; public string expires_at; public string booth_id; }
+    [Serializable]
+    public class QRRequestData
+    {
+        public string booth_id;
+        public int ttl_seconds;
 
-    [Serializable] private class PusherEnvelope { public string @event; public string data; public string channel; }
-    [Serializable] private class PusherSubscribeEvent { public string @event; public SubscribeData data; }
-    [Serializable] private class SubscribeData { public string channel; }
+        public QRRequestData(string id, int ttl)
+        {
+            booth_id = id;
+            ttl_seconds = ttl;
+        }
+    }
 
-    [Serializable] public class UserSessionWrapper { public UserSession session; }
+    [Serializable]
+    public class QRResponse
+    {
+        public bool success;
+        public QRData data;
+    }
+
+    [Serializable]
+    public class QRData
+    {
+        public string token;
+        public string token_id;
+        public string expires_at;
+        public string booth_id;
+    }
+
+    [Serializable]
+    private class PusherEnvelope
+    {
+        public string @event;
+        public string data;
+        public string channel;
+    }
+
+    [Serializable]
+    private class PusherSubscribeEvent
+    {
+        public string @event;
+        public SubscribeData data;
+    }
+
+    [Serializable]
+    private class SubscribeData
+    {
+        public string channel;
+    }
+
+    [Serializable]
+    public class UserSessionWrapper
+    {
+        public UserSession session;
+    }
 
     [Serializable]
     public class UserSession
