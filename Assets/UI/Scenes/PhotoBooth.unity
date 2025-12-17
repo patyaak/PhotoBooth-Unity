@@ -166,7 +166,7 @@ MonoBehaviour:
   wifiErrorPanel: {fileID: 954533339}
   serverBaseURL: https://photo-stg-api.chvps3.aozora-okinawa.com
   healthCheckEndpoint: /
-  useBoothIdInCheck: 1
+  useBoothIdInCheck: 0
   normalCheckInterval: 10
   retryInterval: 3
   requestTimeout: 5
