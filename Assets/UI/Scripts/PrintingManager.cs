@@ -10,30 +10,30 @@ public class PrintingManager : MonoBehaviour
     public static PrintingManager Instance;
 
     [Header("Printer Settings")]
-    public string printerName = "Canon MF3010";
+    public string printerName = "EPSON SL-D1050";
 
     [Header("Paper Size (inches)")]
     public float paperWidthInches = 4f;
     public float paperHeightInches = 6f;
-    public int dpi = 360;
+    public int dpi = 600; // Standard photo printing DPI for Epson
 
     private int PaperWidthPixels => Mathf.RoundToInt(paperWidthInches * dpi);
     private int PaperHeightPixels => Mathf.RoundToInt(paperHeightInches * dpi);
 
     [Header("UI")]
     public GameObject printingPanel;
-    public GameObject inProgressPanel; // 🆕 Child of printingPanel
-    public GameObject printingDonePanel; // 🆕 Child of printingPanel
+    public GameObject inProgressPanel;
+    public GameObject printingDonePanel;
     public GameObject errorPanel;
     public TMP_Text statusText;
     public TMP_Text errorText;
 
     [Header("Completion Settings")]
-    public float printingDoneDisplaySeconds = 3f; // 🆕 How long to show "Printing Done"
+    public float printingDoneDisplaySeconds = 3f;
 
     private Texture2D imageToPrint;
     private string currentFrameType = "portrait";
-    private bool printingComplete = false; // 🆕 Flag to track printing status
+    private bool printingComplete = false;
 
     private void Awake()
     {
@@ -51,9 +51,6 @@ public class PrintingManager : MonoBehaviour
         if (errorPanel) errorPanel.SetActive(false);
     }
 
-    /// <summary>
-    /// Main entry point - called from PhotoShootingManager
-    /// </summary>
     public void PrintFinalImage(Texture2D composedImage, string frameType = "portrait")
     {
         if (composedImage == null)
@@ -64,13 +61,10 @@ public class PrintingManager : MonoBehaviour
 
         currentFrameType = frameType.ToLower();
         imageToPrint = composedImage;
-        printingComplete = false; // Reset flag
+        printingComplete = false;
         StartCoroutine(PrintCoroutine(composedImage));
     }
 
-    /// <summary>
-    /// Check if printing is complete
-    /// </summary>
     public bool IsPrintingComplete()
     {
         return printingComplete;
@@ -78,7 +72,6 @@ public class PrintingManager : MonoBehaviour
 
     private IEnumerator PrintCoroutine(Texture2D source)
     {
-        // 🆕 SHOW PRINTING PANEL WITH IN PROGRESS
         ShowPrintingPanel(true, false);
         UpdateStatus("画像を準備中...", 0.2f);
 
@@ -94,59 +87,45 @@ public class PrintingManager : MonoBehaviour
             Debug.Log($"🔄 Rotated landscape {source.width}x{source.height} → {processedImage.width}x{processedImage.height}");
         }
 
-        // Step 2: Fit to paper
+        // Step 2: Fit to paper WITH CROP (maintains aspect ratio, crops to fill)
         UpdateStatus("用紙サイズに調整中...", 0.5f);
-        Texture2D fitted = FitToPaperWithBorders(processedImage, PaperWidthPixels, PaperHeightPixels);
+        Texture2D fitted = FitToPaperWithCrop(processedImage, PaperWidthPixels, PaperHeightPixels);
 
         if (processedImage != source)
             Destroy(processedImage);
 
-        // Step 3: Convert to monochrome
-        UpdateStatus("白黒変換中...", 0.6f);
-        Texture2D bw = ConvertToMonochrome(fitted);
-        if (fitted != source) Destroy(fitted);
-
-        // Step 4: Save debug image
+        // Step 3: Save debug image
+        UpdateStatus("印刷準備中...", 0.7f);
         string debugFolder = Path.Combine(Application.persistentDataPath, "PrintDebug");
         Directory.CreateDirectory(debugFolder);
         string debugPath = Path.Combine(debugFolder, $"PRINT_{currentFrameType}_{DateTime.Now:yyyyMMdd_HHmmss}.png");
-        File.WriteAllBytes(debugPath, bw.EncodeToPNG());
+        File.WriteAllBytes(debugPath, fitted.EncodeToPNG());
         Debug.Log($"📸 DEBUG IMAGE SAVED → {debugPath}");
-        Debug.Log($"📐 Final print size: {bw.width}x{bw.height}px ({bw.width / (float)dpi:F2}x{bw.height / (float)dpi:F2} inches)");
+        Debug.Log($"📐 Final print size: {fitted.width}x{fitted.height}px ({fitted.width / (float)dpi:F2}x{fitted.height / (float)dpi:F2} inches)");
 
         UpdateStatus("印刷中...", 0.8f);
 
-        // Step 5: Print
-        bool success = PrintWithPowerShell(bw);
-        Destroy(bw);
+        // Step 4: Print (color printing)
+        bool success = PrintWithPowerShell(fitted);
+        if (fitted != source) Destroy(fitted);
 
         if (success)
         {
             UpdateStatus("印刷完了！", 1f);
-
-            // 🆕 SWITCH TO PRINTING DONE PANEL
-            yield return new WaitForSeconds(0.5f); // Small delay before switching
+            yield return new WaitForSeconds(0.5f);
             ShowPrintingPanel(false, true);
-
             Debug.Log($"✅ Printing successful! Showing completion for {printingDoneDisplaySeconds} seconds");
-
-            // 🆕 WAIT BEFORE CLOSING
             yield return new WaitForSeconds(printingDoneDisplaySeconds);
-
-            // 🆕 HIDE PRINTING PANEL
             ShowPrintingPanel(false, false);
-            printingComplete = true; // Set completion flag
+            printingComplete = true;
         }
         else
         {
             ShowError($"印刷失敗\n\nプリンター名: \"{printerName}\"\n\nWindowsの「プリンターとスキャナー」で名前を確認してください");
-            printingComplete = true; // Still set to true to not block the flow
+            printingComplete = true;
         }
     }
 
-    /// <summary>
-    /// 🆕 Show/hide printing panel states
-    /// </summary>
     private void ShowPrintingPanel(bool showInProgress, bool showDone)
     {
         if (printingPanel != null)
@@ -181,45 +160,50 @@ public class PrintingManager : MonoBehaviour
         return rotated;
     }
 
-    private Texture2D FitToPaperWithBorders(Texture2D source, int paperWidth, int paperHeight)
+    /// <summary>
+    /// Fit to paper WITH CROP - maintains aspect ratio, crops edges to fill entire paper
+    /// </summary>
+    private Texture2D FitToPaperWithCrop(Texture2D source, int paperWidth, int paperHeight)
     {
         float sourceAspect = (float)source.width / source.height;
         float paperAspect = (float)paperWidth / paperHeight;
 
-        int targetWidth, targetHeight;
+        int scaledWidth, scaledHeight;
 
+        // Scale to COVER the paper (opposite of FIT)
         if (sourceAspect > paperAspect)
         {
-            targetWidth = paperWidth;
-            targetHeight = Mathf.RoundToInt(paperWidth / sourceAspect);
+            // Source is wider - scale to match HEIGHT, crop WIDTH
+            scaledHeight = paperHeight;
+            scaledWidth = Mathf.RoundToInt(paperHeight * sourceAspect);
         }
         else
         {
-            targetHeight = paperHeight;
-            targetWidth = Mathf.RoundToInt(paperHeight * sourceAspect);
+            // Source is taller - scale to match WIDTH, crop HEIGHT
+            scaledWidth = paperWidth;
+            scaledHeight = Mathf.RoundToInt(paperWidth / sourceAspect);
         }
 
-        Texture2D resized = ResizeTexture(source, targetWidth, targetHeight);
+        // Resize to scaled dimensions
+        Texture2D scaled = ResizeTexture(source, scaledWidth, scaledHeight);
 
+        // Create paper texture
         Texture2D paper = new Texture2D(paperWidth, paperHeight, TextureFormat.RGB24, false);
 
-        Color[] whitePixels = new Color[paperWidth * paperHeight];
-        for (int i = 0; i < whitePixels.Length; i++)
-            whitePixels[i] = Color.white;
-        paper.SetPixels(whitePixels);
+        // Calculate crop offsets (center crop)
+        int xOffset = (scaledWidth - paperWidth) / 2;
+        int yOffset = (scaledHeight - paperHeight) / 2;
 
-        int xOffset = (paperWidth - targetWidth) / 2;
-        int yOffset = (paperHeight - targetHeight) / 2;
-
-        Color[] imagePixels = resized.GetPixels();
-        paper.SetPixels(xOffset, yOffset, targetWidth, targetHeight, imagePixels);
+        // Copy cropped portion
+        Color[] croppedPixels = scaled.GetPixels(xOffset, yOffset, paperWidth, paperHeight);
+        paper.SetPixels(croppedPixels);
         paper.Apply();
 
-        if (resized != source)
-            Destroy(resized);
+        if (scaled != source)
+            Destroy(scaled);
 
-        Debug.Log($"📦 Fitted {source.width}x{source.height} into paper {paperWidth}x{paperHeight}");
-        Debug.Log($"   → Content size: {targetWidth}x{targetHeight} (centered with white borders)");
+        Debug.Log($"📦 Fit with CROP: {source.width}x{source.height} → scaled to {scaledWidth}x{scaledHeight} → cropped to {paperWidth}x{paperHeight}");
+        Debug.Log($"   ✂️ Cropped {xOffset}px from sides, {yOffset}px from top/bottom (maintains aspect ratio, full bleed)");
 
         return paper;
     }
@@ -240,21 +224,6 @@ public class PrintingManager : MonoBehaviour
         RenderTexture.active = null;
         RenderTexture.ReleaseTemporary(rt);
         return result;
-    }
-
-    private Texture2D ConvertToMonochrome(Texture2D source)
-    {
-        Texture2D mono = new Texture2D(source.width, source.height, TextureFormat.RGB24, false);
-        for (int y = 0; y < source.height; y++)
-        {
-            for (int x = 0; x < source.width; x++)
-            {
-                float gray = source.GetPixel(x, y).grayscale;
-                mono.SetPixel(x, y, gray > 0.5f ? Color.white : Color.black);
-            }
-        }
-        mono.Apply();
-        return mono;
     }
 
     private bool PrintWithPowerShell(Texture2D img)

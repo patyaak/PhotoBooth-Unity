@@ -151,9 +151,7 @@ public class LoginManager : MonoBehaviour
         autoRefreshRoutine = StartCoroutine(AutoRefreshQR());
     }
 
-    // UPDATED LoginManager.cs - KEY CHANGES ONLY
-    // Replace the RequestQRToken method with this updated version:
-
+    // ✅ UPDATED: Use ServerAwareWebRequest for connectivity handling
     IEnumerator RequestQRToken()
     {
         string url = $"{baseUrl}/api/qr-login/issue";
@@ -163,7 +161,7 @@ public class LoginManager : MonoBehaviour
         Debug.Log($"🔵 Requesting QR Token from: {url}");
         Debug.Log($"📤 Request payload: {json}");
 
-        // ✅ CHANGED: Use ServerAwareWebRequest instead of LoggedWebRequest
+        // ✅ CHANGED: Use ServerAwareWebRequest instead of UnityWebRequest
         yield return ServerAwareWebRequest.Post(url, json, (request) =>
         {
             // ✅ CHANGED: Check for connectivity errors
@@ -174,7 +172,7 @@ public class LoginManager : MonoBehaviour
                 return;
             }
 
-            if (request.result == UnityWebRequest.Result.Success)
+            if (ServerAwareWebRequest.IsSuccess(request))
             {
                 string responseText = request.downloadHandler.text;
                 Debug.Log($"✅ QR Token Response (Raw): {responseText}");
@@ -255,6 +253,7 @@ public class LoginManager : MonoBehaviour
             }
         });
     }
+
     IEnumerator AutoRefreshQR()
     {
         float delay = Mathf.Max(10f, ttlSeconds - 20f);

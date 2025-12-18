@@ -160,7 +160,7 @@ MonoBehaviour:
   m_GameObject: {fileID: 24613380}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: bad02c739b7d53648a518584c09d9331, type: 3}
+  m_Script: {fileID: 11500000, guid: 139153633508beb45b81dd3c8ecfb4ee, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
   wifiErrorPanel: {fileID: 954533339}
@@ -13382,10 +13382,10 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 29f60cf34fcad014abe3f8ca57f4da62, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  printerName: Canon MF3010
+  printerName: EPSON SL-D1050
   paperWidthInches: 4
   paperHeightInches: 6
-  dpi: 360
+  dpi: 600
   printingPanel: {fileID: 1609352119}
   inProgressPanel: {fileID: 1611030347}
   printingDonePanel: {fileID: 1834765795}
@@ -14555,7 +14555,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 0
+  m_IsActive: 1
 --- !u!222 &208923713879497599
 CanvasRenderer:
   m_ObjectHideFlags: 0
@@ -15233,9 +15233,9 @@ RectTransform:
   - {fileID: 6016970784628349026}
   m_Father: {fileID: 7250021516505297247}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
-  m_AnchorMin: {x: 0, y: 1}
-  m_AnchorMax: {x: 0, y: 1}
-  m_AnchoredPosition: {x: 900, y: -275}
+  m_AnchorMin: {x: 0, y: 0}
+  m_AnchorMax: {x: 0, y: 0}
+  m_AnchoredPosition: {x: 0, y: 0}
   m_SizeDelta: {x: 600, y: 550}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!1 &1336346919716419643
@@ -19379,7 +19379,7 @@ RectTransform:
   m_AnchorMin: {x: 0.17352085, y: 0.12777779}
   m_AnchorMax: {x: 0.83029175, y: 0.6234074}
   m_AnchoredPosition: {x: 0, y: 0}
-  m_SizeDelta: {x: -61.00013, y: 14.719991}
+  m_SizeDelta: {x: 0, y: 0}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &7250021516505297248
 MonoBehaviour:
@@ -19697,9 +19697,9 @@ RectTransform:
   - {fileID: 1882693399}
   m_Father: {fileID: 7250021516505297247}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
-  m_AnchorMin: {x: 0, y: 1}
-  m_AnchorMax: {x: 0, y: 1}
-  m_AnchoredPosition: {x: 300, y: -275}
+  m_AnchorMin: {x: 0, y: 0}
+  m_AnchorMax: {x: 0, y: 0}
+  m_AnchoredPosition: {x: 0, y: 0}
   m_SizeDelta: {x: 600, y: 550}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!222 &7658744492179329532

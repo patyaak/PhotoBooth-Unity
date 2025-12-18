@@ -263,6 +263,8 @@ public class PhotoBoothFrameManager : MonoBehaviour
     // ==================================================================
     // MAIN FETCH METHOD – NOW WITH MYFRAME + USER_ID FILTER SUPPORT
     // ==================================================================
+    
+   
     public IEnumerator FetchFramesFromServer()
     {
         if (isFetching || string.IsNullOrEmpty(boothID)) yield break;
@@ -273,10 +275,10 @@ public class PhotoBoothFrameManager : MonoBehaviour
         string url = apiBaseURL + "api/photobooth/frames";
 
         var parameters = new List<string>
-        {
-            "booth_id=" + UnityWebRequest.EscapeURL(boothID),
-            "assignment_type=" + currentCategory
-        };
+    {
+        "booth_id=" + UnityWebRequest.EscapeURL(boothID),
+        "assignment_type=" + currentCategory
+    };
 
         // MYFRAME: Add user_id filter if logged in
         if (currentCategory == "myframe")
@@ -302,26 +304,31 @@ public class PhotoBoothFrameManager : MonoBehaviour
 
         if (isOnline)
         {
-            using (UnityWebRequest request = UnityWebRequest.Get(fullURL))
+            // ✅ CHANGED: Use ServerAwareWebRequest instead of UnityWebRequest
+            yield return ServerAwareWebRequest.Get(fullURL, (request) =>
             {
-                yield return request.SendWebRequest();
+                // ✅ Check for connectivity errors
+                if (ServerAwareWebRequest.IsConnectivityError(request))
+                {
+                    Debug.LogWarning("⚠️ Server connectivity issue → loading from cache");
+                    StartCoroutine(LoadFramesFromCache(currentCategory));
+                    return;
+                }
 
                 if (request.result == UnityWebRequest.Result.Success)
                 {
                     string json = request.downloadHandler.text;
                     cachedResponse = JsonUtility.FromJson<FrameResponse>(json);
 
-                    // **FIX: Use my_frames for myframe category**
+                    // Use correct field based on category
                     List<Frame> framesToDisplay = null;
 
                     if (currentCategory == "myframe")
                     {
-                        // Use my_frames field for purchased/owned frames
                         framesToDisplay = cachedResponse?.data?.my_frames;
                     }
                     else
                     {
-                        // Use regular frames field for other categories
                         framesToDisplay = cachedResponse?.data?.frames;
                     }
 
@@ -331,9 +338,9 @@ public class PhotoBoothFrameManager : MonoBehaviour
                 else
                 {
                     Debug.LogWarning("API failed → loading from cache");
-                    yield return LoadFramesFromCache(currentCategory);
+                    StartCoroutine(LoadFramesFromCache(currentCategory));
                 }
-            }
+            });
         }
         else
         {

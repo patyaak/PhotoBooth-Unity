@@ -274,6 +274,7 @@ public class GatchaManager : MonoBehaviour
         target.localPosition = originalPos;
     }
 
+    // ✅ UPDATED: Use ServerAwareWebRequest for connectivity handling
     private IEnumerator FetchGachaResultAndInstantiate(int index)
     {
         darkpanel1.SetActive(true);
@@ -288,12 +289,13 @@ public class GatchaManager : MonoBehaviour
 
         if (!useCache)
         {
+            // ✅ CHANGED: Use ServerAwareWebRequest
             yield return ServerAwareWebRequest.Get(url, (request) =>
             {
+                // ✅ Check for connectivity errors
                 if (ServerAwareWebRequest.IsConnectivityError(request))
                 {
                     Debug.LogWarning("⚠️ Server connectivity issue during gacha → using cache");
-                    useCache = true;
                     StartCoroutine(LoadFromCacheFallback(index));
                     return;
                 }
@@ -315,33 +317,16 @@ public class GatchaManager : MonoBehaviour
                 }
                 else
                 {
-                    useCache = true;
+                    Debug.LogWarning("⚠️ Gacha API failed → using cache");
                     StartCoroutine(LoadFromCacheFallback(index));
                 }
             });
         }
-
-        // --- Offline fallback ---
-        if (useCache && FrameCacheManager.HasCachedData("gacha"))
+        else
         {
-            string cachedJson = FrameCacheManager.LoadCachedJSON("gacha");
-            if (!string.IsNullOrEmpty(cachedJson))
-            {
-                FrameResponse cachedResponse = JsonUtility.FromJson<FrameResponse>(cachedJson);
-                if (cachedResponse != null && cachedResponse.data.frames.Count > 0)
-                {
-                    clickedResultFrame = cachedResponse.data.frames[Random.Range(0, cachedResponse.data.frames.Count)];
-                    if (!gachaFrames.Contains(clickedResultFrame))
-                        gachaFrames.Insert(0, clickedResultFrame);
-
-                    yield return InstantiateFrameOnButton(index, clickedResultFrame, Vector3.one, true);
-                    StartCoroutine(RevealRemainingRandomFrames(index));
-                    yield break;
-                }
-            }
+            // Offline - use cache
+            yield return LoadFromCacheFallback(index);
         }
-
-        Debug.LogWarning("No cached data available for Gacha fallback.");
     }
 
     private IEnumerator LoadFromCacheFallback(int index)
