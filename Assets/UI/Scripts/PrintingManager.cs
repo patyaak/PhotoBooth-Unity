@@ -35,6 +35,11 @@ public class PrintingManager : MonoBehaviour
     private string currentFrameType = "portrait";
     private bool printingComplete = false;
 
+    [Header("Printer Monitoring")]
+    public float printerRecheckInterval = 2.5f;
+    private Coroutine printerMonitorRoutine;
+
+
     private void Awake()
     {
         if (Instance == null)
@@ -49,10 +54,139 @@ public class PrintingManager : MonoBehaviour
         if (inProgressPanel) inProgressPanel.SetActive(false);
         if (printingDonePanel) printingDonePanel.SetActive(false);
         if (errorPanel) errorPanel.SetActive(false);
+
+#if UNITY_STANDALONE_WIN && !UNITY_EDITOR
+    CheckPrinterStatusOnStartup();
+#endif
+
     }
+    private void CheckPrinterStatusOnStartup()
+    {
+        string error;
+        bool ok = GetPrinterStatus(out error);
+
+        if (!ok)
+        {
+            ShowError(error);
+            Debug.LogError("🖨️ Printer startup check failed: " + error);
+        }
+        else
+        {
+            Debug.Log("✅ Printer is ready");
+        }
+    }
+
+    private bool GetPrinterStatus(out string errorMessage)
+    {
+        errorMessage = "";
+
+#if UNITY_STANDALONE_WIN && !UNITY_EDITOR
+    try
+    {
+        string script = @"
+$printerName = '" + printerName.Replace(@"'", @"''") + @"'
+$printer = Get-WmiObject Win32_Printer | Where-Object { $_.Name -eq $printerName }
+
+if ($null -eq $printer) {
+    Write-Output 'NOT_FOUND'
+    exit
+}
+
+if ($printer.WorkOffline) {
+    Write-Output 'OFFLINE'
+    exit
+}
+
+if ($printer.PrinterStatus -eq 3) {
+    Write-Output 'IDLE'
+    exit
+}
+
+if ($printer.PrinterStatus -eq 4) {
+    Write-Output 'PRINTING'
+    exit
+}
+
+if ($printer.PrinterStatus -eq 5) {
+    Write-Output 'WARMUP'
+    exit
+}
+
+if ($printer.DetectedErrorState -ne $null -and $printer.DetectedErrorState -ne 0) {
+    Write-Output 'ERROR'
+    exit
+}
+
+if ($printer.PaperOut) {
+    Write-Output 'PAPER_OUT'
+    exit
+}
+
+Write-Output 'READY'
+";
+
+        var psi = new System.Diagnostics.ProcessStartInfo
+        {
+            FileName = "powershell.exe",
+            Arguments = "-ExecutionPolicy Bypass -Command \"" + script + "\"",
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            CreateNoWindow = true
+        };
+
+        using (var process = System.Diagnostics.Process.Start(psi))
+        {
+            string result = process.StandardOutput.ReadToEnd().Trim();
+            process.WaitForExit();
+
+            switch (result)
+            {
+                case "READY":
+                case "IDLE":
+                    return true;
+
+                case "NOT_FOUND":
+                    errorMessage = "プリンターが見つかりません\n\n設定されたプリンター名:\n" + printerName;
+                    return false;
+
+                case "OFFLINE":
+                    errorMessage = "プリンターがオフラインです\n\n電源・USB・LANを確認してください";
+                    return false;
+
+                case "PAPER_OUT":
+                    errorMessage = "用紙切れです\n\n用紙を補充してください";
+                    return false;
+
+                case "ERROR":
+                    errorMessage = "プリンターエラーが発生しています\n\nプリンター本体を確認してください";
+                    return false;
+
+                default:
+                    errorMessage = "プリンターの状態を確認できません\n\n状態: " + result;
+                    return false;
+            }
+        }
+    }
+    catch (Exception e)
+    {
+        errorMessage = "プリンター確認エラー\n\n" + e.Message;
+        return false;
+    }
+#else
+        return true;
+#endif
+    }
+
 
     public void PrintFinalImage(Texture2D composedImage, string frameType = "portrait")
     {
+
+        string error;
+        if (!GetPrinterStatus(out error))
+        {
+            ShowError(error);
+            return;
+        }
         if (composedImage == null)
         {
             Debug.LogError("Print error: image is null");
@@ -296,7 +430,37 @@ Remove-Item $imgPath -Force
         if (printingPanel) printingPanel.SetActive(false);
         if (inProgressPanel) inProgressPanel.SetActive(false);
         if (printingDonePanel) printingDonePanel.SetActive(false);
+
+#if UNITY_STANDALONE_WIN && !UNITY_EDITOR
+    if (printerMonitorRoutine == null)
+        printerMonitorRoutine = StartCoroutine(MonitorPrinterStatus());
+#endif
     }
+
+    private IEnumerator MonitorPrinterStatus()
+    {
+        Debug.Log("🔄 Started monitoring printer status...");
+
+        while (true)
+        {
+            string error;
+            bool ready = GetPrinterStatus(out error);
+
+            if (ready)
+            {
+                Debug.Log("✅ Printer recovered");
+
+                if (errorPanel) errorPanel.SetActive(false);
+                if (statusText) statusText.text = "";
+
+                printerMonitorRoutine = null;
+                yield break;
+            }
+
+            yield return new WaitForSeconds(printerRecheckInterval);
+        }
+    }
+
 
     public void RetryLastPrint()
     {
