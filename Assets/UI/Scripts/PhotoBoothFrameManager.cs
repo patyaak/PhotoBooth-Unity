@@ -43,7 +43,6 @@ public class PhotoBoothFrameManager : MonoBehaviour
     private float scrollPositionThreshold = 0.1f; // Threshold to detect page change
 
     [Header("API")]
-    public string apiBaseURL = "http://photo-stg-api.chvps3.aozora-okinawa.com/";
     private string boothID = "";
     public FrameResponse cachedResponse;
 
@@ -272,7 +271,7 @@ public class PhotoBoothFrameManager : MonoBehaviour
         isFetching = true;
         ClearFrames();
 
-        string url = apiBaseURL + "api/photobooth/frames";
+        string url = API.BaseURL + "/api/photobooth/frames";
 
         var parameters = new List<string>
     {
@@ -351,7 +350,7 @@ public class PhotoBoothFrameManager : MonoBehaviour
     }
 
 
-    private IEnumerator LoadFramesFromCache(string category)
+    public IEnumerator LoadFramesFromCache(string category)
     {
         if (!FrameCacheManager.HasCachedData(category)) yield break;
 
@@ -508,7 +507,7 @@ public class PhotoBoothFrameManager : MonoBehaviour
     {
         if (string.IsNullOrEmpty(path)) return path;
         if (path.StartsWith("http")) return path;
-        string baseUrl = apiBaseURL.EndsWith("/") ? apiBaseURL : apiBaseURL + "/";
+        string baseUrl = API.BaseURL.EndsWith("/") ? API.BaseURL : API.BaseURL + "/";
         if (path.StartsWith("/")) path = path.Substring(1);
         return baseUrl + path;
     }
@@ -652,7 +651,7 @@ public class PhotoBoothFrameManager : MonoBehaviour
             img.sprite = selectedItem.frameImg.sprite;
             Debug.Log("✅ Frame thumbnail set");
         }
-
+        
         Button startButton = instance.GetComponentInChildren<Button>();
         if (startButton != null)
         {

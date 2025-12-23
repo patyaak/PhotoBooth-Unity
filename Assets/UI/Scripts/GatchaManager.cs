@@ -27,7 +27,6 @@ public class GatchaManager : MonoBehaviour
     public float gatchaWinFadeDuration = 0.5f;
 
     [Header("API Settings")]
-    public string apiBaseURL = "http://photo-stg-api.chvps3.aozora-okinawa.com/";
     private string boothID = "";
 
     private readonly List<GameObject> spawnedFrames = new List<GameObject>();
@@ -285,7 +284,7 @@ public class GatchaManager : MonoBehaviour
         }
 
         bool useCache = Application.internetReachability == NetworkReachability.NotReachable;
-        string url = $"{apiBaseURL}api/photobooth/booths/{boothID}/gacha-frame";
+        string url = $"{API.BaseURL}api/photobooth/booths/{boothID}/gacha-frame";
 
         if (!useCache)
         {
@@ -700,7 +699,7 @@ public class GatchaManager : MonoBehaviour
             string assetUrl = resultFrame.asset_path;
             if (!assetUrl.StartsWith("http"))
             {
-                string baseUrl = PhotoBoothFrameManager.Instance.apiBaseURL;
+                string baseUrl = API.BaseURL;
                 if (!baseUrl.EndsWith("/")) baseUrl += "/";
                 if (assetUrl.StartsWith("/")) assetUrl = assetUrl.Substring(1);
                 assetUrl = baseUrl + assetUrl;

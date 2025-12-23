@@ -23,7 +23,6 @@ public class PaymentManager : MonoBehaviour
     public Button cancelButton;
 
     [Header("Payment Settings")]
-    public string apiBaseURL = "http://photo-stg-api.chvps3.aozora-okinawa.com/";
     public float mockPaymentDelay = 3f;
     public bool useMockPayment = false;
 
@@ -90,6 +89,23 @@ public class PaymentManager : MonoBehaviour
 
         currentFrameId = selectedFrame.frameData.frame_id;
 
+        // Check if we're in offline mode
+        if (IsOfflineMode())
+        {
+            Debug.Log("📵 Offline mode detected - proceeding without payment/API call");
+
+            currentPaymentType = PaymentType.Frame;
+            frameAfterPayment = selectedFrame;
+            currentFrameType = frameType;
+
+            // Generate offline order ID
+            currentOrderId = $"offline_{System.Guid.NewGuid().ToString()}";
+
+            // Skip payment panel and proceed directly
+            frameManager?.ContinueAfterPayment(frameAfterPayment);
+            return;
+        }
+
         LoggingManager.Instance?.LogPayment(
             orderId: System.Guid.NewGuid().ToString(),
             paymentType: "frame",
@@ -115,6 +131,26 @@ public class PaymentManager : MonoBehaviour
     public void InitiateGachaPayment(string boothId, int buttonIndex, string price)
     {
         if (string.IsNullOrEmpty(boothId)) return;
+
+        // Check if we're in offline mode
+        if (IsOfflineMode())
+        {
+            Debug.Log("📵 Offline mode detected - proceeding with gacha without payment/API call");
+
+            currentPaymentType = PaymentType.Gacha;
+            pendingGachaButtonIndex = buttonIndex;
+
+            // Generate offline order ID
+            currentOrderId = $"offline_{System.Guid.NewGuid().ToString()}";
+
+            // Set gacha flow flag
+            isInGachaFlow = true;
+
+            // Proceed directly to gacha
+            gatchaManager?.SetBoothID(boothId);
+            gatchaManager?.PlayGatchaAnimationAfterPayment();
+            return;
+        }
 
         int paymentsEnabledInt = PlayerPrefs.GetInt("payments_enabled", 0);
         paymentActive = paymentsEnabledInt == 1;
@@ -151,6 +187,29 @@ public class PaymentManager : MonoBehaviour
         isInGachaFlow = false;
     }
 
+    /// <summary>
+    /// Check if we're in offline mode (no internet + payments/login disabled)
+    /// </summary>
+    private bool IsOfflineMode()
+    {
+        // Check if server is offline
+        bool serverOffline = ServerConnectivityManager.Instance != null &&
+                            !ServerConnectivityManager.Instance.IsServerOnline();
+
+        if (!serverOffline)
+            return false;
+
+        // Check if offline mode is allowed
+        int paymentsEnabled = PlayerPrefs.GetInt("payments_enabled", 1);
+        int loginRequired = PlayerPrefs.GetInt("login_required", 1);
+
+        bool offlineAllowed = (paymentsEnabled == 0) && (loginRequired == 0);
+
+        Debug.Log($"🔍 Offline mode check: serverOffline={serverOffline}, paymentsEnabled={paymentsEnabled}, loginRequired={loginRequired}, allowed={offlineAllowed}");
+
+        return offlineAllowed;
+    }
+
     #region Payment Flow
     private void ShowPaymentPanel(float price)
     {
@@ -169,7 +228,7 @@ public class PaymentManager : MonoBehaviour
             yield break;
         }
 
-        string url = $"{apiBaseURL}api/booths/{currentBoothId}/payment/initiate";
+        string url = $"{API.BaseURL}/api/booths/{currentBoothId}/payment/initiate";
         string sessionId = PlayerPrefs.GetString("session_id", "");
         string userId = PlayerPrefs.GetString("user_id", "");
         string mode = string.IsNullOrEmpty(userId) ? "guest" : "user";
@@ -454,6 +513,19 @@ public class PaymentManager : MonoBehaviour
         currentPaymentType = PaymentType.Frame;
         currentBoothId = boothId;
         currentPrice = float.Parse(price);
+
+        // Check if we're in offline mode
+        if (IsOfflineMode())
+        {
+            Debug.Log("📵 Offline mode detected - proceeding without payment/API call");
+
+            // Generate offline order ID
+            currentOrderId = $"offline_{System.Guid.NewGuid().ToString()}";
+
+            // Skip payment panel and proceed directly
+            frameManager?.ContinueAfterPayment(frameAfterPayment);
+            return;
+        }
 
         int paymentsEnabledInt = PlayerPrefs.GetInt("payments_enabled", 0);
         bool paymentsEnabled = paymentsEnabledInt == 1;

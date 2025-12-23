@@ -164,7 +164,6 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   wifiErrorPanel: {fileID: 954533339}
-  serverBaseURL: https://photo-stg-api.chvps3.aozora-okinawa.com
   healthCheckEndpoint: /
   useBoothIdInCheck: 0
   normalCheckInterval: 10
@@ -491,7 +490,6 @@ MonoBehaviour:
   priceText: {fileID: 1545526701343610050}
   qrCodeImage: {fileID: 8734244963072871654}
   cancelButton: {fileID: 481450984092988600}
-  apiBaseURL: http://photo-stg-api.chvps3.aozora-okinawa.com/
   mockPaymentDelay: 3
   useMockPayment: 0
   frameManager: {fileID: 618989761}
@@ -650,7 +648,6 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   uiController: {fileID: 2917911724262040041}
-  apiBaseURL: http://photo-stg-api.chvps3.aozora-okinawa.com/
   photoShootPanel: {fileID: 1128287894}
   beautificationPanel: {fileID: 4802576420329853301}
   photoPreviewPanel: {fileID: 0}
@@ -4157,7 +4154,6 @@ MonoBehaviour:
   prevButton: {fileID: 441805084}
   framesPerPage: 6
   minFramesForScroll: 6
-  apiBaseURL: http://photo-stg-api.chvps3.aozora-okinawa.com/
   cachedResponse:
     success: 0
     message: 
@@ -7699,7 +7695,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 8d5ba30ea7a1e054f9b5318145182cb3, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  apiURL: http://photo-stg-api.chvps3.aozora-okinawa.com/api/photobooth/device
   deviceIdText: {fileID: 1460877780}
   boothIdText: {fileID: 1943548686}
   wifi: {fileID: 954533339}
@@ -10737,7 +10732,6 @@ MonoBehaviour:
   gatchaWin: {fileID: 301954309}
   winFrameParent: {fileID: 1151353036}
   gatchaWinFadeDuration: 0.5
-  apiBaseURL: http://photo-stg-api.chvps3.aozora-okinawa.com/
 --- !u!1 &1728901412
 GameObject:
   m_ObjectHideFlags: 0
@@ -12135,7 +12129,6 @@ MonoBehaviour:
   boothPrice: {fileID: 4904306168590523558}
   logoBtn: {fileID: 6284285003830899591}
   boothPriceBtn: {fileID: 9199999331440282126}
-  apiBaseURL: https://photo-stg-api.chvps3.aozora-okinawa.com
   errorPanel: {fileID: 247098043}
   boothIdTextButton: {fileID: 1943548688}
 --- !u!4 &1925229620
@@ -13258,7 +13251,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 11bb79d42b581eb49bc023d04604ad67, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  baseUrl: http://photo-stg-api.chvps3.aozora-okinawa.com
   ttlSeconds: 160
   boothKey: boothkey123
   useSecureWebSocket: 1

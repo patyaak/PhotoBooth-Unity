@@ -7,9 +7,6 @@ using TMPro;
 
 public class DeviceRegistration : MonoBehaviour
 {
-    [Header("API URL")]
-    public string apiURL = "http://photo-stg-api.chvps3.aozora-okinawa.com/api/photobooth/device";
-
     private string jsonPath;
 
     public TextMeshProUGUI deviceIdText;
@@ -71,7 +68,9 @@ public class DeviceRegistration : MonoBehaviour
         string json = JsonUtility.ToJson(payload);
         Debug.Log("Sending Payload: " + json);
 
-        UnityWebRequest request = new UnityWebRequest(apiURL, "POST");
+        string url = $"{API.BaseURL}/api/photobooth/device";
+        UnityWebRequest request = new UnityWebRequest(url, "POST");
+
         byte[] bodyRaw = System.Text.Encoding.UTF8.GetBytes(json);
 
         request.uploadHandler = new UploadHandlerRaw(bodyRaw);

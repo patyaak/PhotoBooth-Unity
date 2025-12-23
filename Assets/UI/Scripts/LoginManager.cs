@@ -19,7 +19,6 @@ public class LoginManager : MonoBehaviour
     public static LoginManager Instance;
 
     [Header("API Config")]
-    public string baseUrl = "https://photo-stg-api.chvps3.aozora-okinawa.com";
     public int ttlSeconds = 160;
     public string boothKey = "boothkey123";
 
@@ -154,7 +153,7 @@ public class LoginManager : MonoBehaviour
     // ✅ UPDATED: Use ServerAwareWebRequest for connectivity handling
     IEnumerator RequestQRToken()
     {
-        string url = $"{baseUrl}/api/qr-login/issue";
+        string url = $"{API.BaseURL}/api/qr-login/issue";
         QRRequestData data = new QRRequestData(boothId, ttlSeconds);
         string json = JsonUtility.ToJson(data);
 

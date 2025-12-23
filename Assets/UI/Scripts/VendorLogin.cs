@@ -26,9 +26,6 @@ public class VendorLogin : MonoBehaviour
     private float lastClickTime = 0;
     private float resetDelay = 1f;
 
-    [Header("API Endpoint")]
-    public string apiBaseURL = "http://photo-stg-api.chvps3.aozora-okinawa.com";
-
     // Default sprites to restore on switch vendor
     private Sprite defaultBackground;
     private Sprite defaultLogo;
@@ -46,40 +43,114 @@ public class VendorLogin : MonoBehaviour
     private float lastBoothIdClickTime = 0;
     private float clickResetTime = 1f;
     private int clicksRequiredToUnlock = 5;
-   
+
     void Start()
     {
         submitButton.onClick.AddListener(OnSubmitClicked);
-
         mainAppPanel.SetActive(false);
 
-        // Store default sprites for reset
         defaultBackground = backgroundImage.sprite;
         defaultLogo = logoImage.sprite;
         defaultQRMobile = qrMobileImage.sprite;
         defaultCamera = cameraImage.sprite;
 
+        boothIDInput.readOnly = true;
+        if (boothIdTextButton != null)
+            boothIdTextButton.onClick.AddListener(OnBoothIdTextClicked);
+
+        SetupSecretTrigger();
+
         // Auto-load last saved booth ID
         if (PlayerPrefs.HasKey("booth_id"))
         {
             string savedBoothID = PlayerPrefs.GetString("booth_id");
-            Debug.Log($"Found saved booth ID: {savedBoothID}. Auto-loading...");
-            boothIDInput.text = savedBoothID;
-            StartCoroutine(LoadBoothData(savedBoothID));
-        }
+            Debug.Log($"Found saved booth ID: {savedBoothID}. Checking offline/online mode...");
 
-        boothIDInput.readOnly = true;
-        if (boothIdTextButton != null)
+            // Check internet connectivity
+            if (Application.internetReachability == NetworkReachability.NotReachable)
+            {
+                Debug.Log("📵 No internet connection detected at startup");
+                HandleOfflineStartup(savedBoothID);
+            }
+            else
+            {
+                Debug.Log("🌐 Internet available — loading booth data from server");
+                StartCoroutine(LoadBoothData(savedBoothID));
+            }
+        }
+    }
+
+    void HandleOfflineStartup(string savedBoothID)
+    {
+        // Get saved booth configuration
+        int paymentsEnabled = PlayerPrefs.GetInt("payments_enabled", 1);
+        int loginRequired = PlayerPrefs.GetInt("login_required", 1);
+
+        Debug.Log($"📋 Saved Config: payments_enabled={paymentsEnabled}, login_required={loginRequired}");
+
+        // Check if offline mode is allowed (both must be 0/false)
+        if (paymentsEnabled == 0 && loginRequired == 0)
         {
-            boothIdTextButton.onClick.AddListener(OnBoothIdTextClicked);
+            Debug.Log("✅ Offline mode allowed — entering offline mode");
+            EnterOfflineMode();
+        }
+        else
+        {
+            Debug.Log("❌ Offline mode NOT allowed — showing WiFi error and resetting");
+            if (wifiErrorGO != null)
+                wifiErrorGO.SetActive(true);
+
+            SwitchVendor(); // Reset to login panel
+        }
+    }
+
+    public void EnterOfflineMode()
+    {
+        Debug.Log("🔄 Entering OFFLINE MODE...");
+
+        // DON'T show WiFi error - keep app running smoothly
+        if (wifiErrorGO != null)
+            wifiErrorGO.SetActive(false);
+
+        // Activate main app panel
+        mainAppPanel.SetActive(true);
+
+        // Load cached booth data
+        currentBoothID = PlayerPrefs.GetString("booth_id");
+
+        if (boothPrice != null)
+            boothPrice.text = PlayerPrefs.GetString("booth_price", "");
+
+        // Force-disable payments in offline mode
+        PlayerPrefs.SetInt("payments_enabled", 0);
+        PlayerPrefs.Save();
+
+        // Hide QR generation button (no login in offline mode)
+        var loginManager = FindAnyObjectByType<LoginManager>();
+        if (loginManager != null && loginManager.generateQRButton != null)
+            loginManager.generateQRButton.gameObject.SetActive(false);
+
+        // Load cached frames
+        var frameManager = FindAnyObjectByType<PhotoBoothFrameManager>();
+        if (frameManager != null)
+        {
+            frameManager.ClearFrames();
+            frameManager.SetBoothID(currentBoothID);
+            frameManager.LoadFramesFromCache(currentBoothID);
+            Debug.Log($"📦 Loaded cached frames for booth: {currentBoothID}");
         }
 
-        SetupSecretTrigger();
+        Debug.Log("✅ Offline mode ready — app running smoothly with cached data (no WiFi panel)");
+
+        // Log the offline mode activation
+        LoggingManager.Instance?.LogSystemEvent(
+            message: $"Entered offline mode for booth: {currentBoothID}",
+            severity: LogSeverity.Warning
+        );
     }
 
     void OnBoothIdTextClicked()
     {
-        // reset count if too much time passed
         if (Time.time - lastBoothIdClickTime > clickResetTime)
             boothIdClickCount = 0;
 
@@ -88,9 +159,9 @@ public class VendorLogin : MonoBehaviour
 
         if (boothIdClickCount >= clicksRequiredToUnlock)
         {
-            boothIDInput.readOnly = false; // make input field editable
+            boothIDInput.readOnly = false;
             Debug.Log("Booth ID input is now editable!");
-            boothIdClickCount = 0; // reset click count after unlocking
+            boothIdClickCount = 0;
         }
     }
 
@@ -110,7 +181,7 @@ public class VendorLogin : MonoBehaviour
 
     IEnumerator LoadBoothData(string boothID)
     {
-        string fullURL = $"{apiBaseURL}/api/photobooth/booths/{boothID}";
+        string fullURL = $"{API.BaseURL}/api/photobooth/booths/{boothID}";
         Debug.Log($"Fetching booth data from: {fullURL}");
 
         yield return StartCoroutine(FetchBoothData(fullURL));
@@ -124,6 +195,7 @@ public class VendorLogin : MonoBehaviour
 
             if (request.result == UnityWebRequest.Result.Success)
             {
+                // Hide WiFi error since we successfully connected
                 if (wifiErrorGO != null)
                     wifiErrorGO.SetActive(false);
 
@@ -146,6 +218,7 @@ public class VendorLogin : MonoBehaviour
                     Booth booth = response.data.booth;
                     Theme theme = response.data.theme;
 
+                    // Check if booth is stopped
                     if (booth.status.ToLower() == "stop")
                     {
                         ShowErrorAndReset();
@@ -165,30 +238,39 @@ public class VendorLogin : MonoBehaviour
                         Debug.LogWarning("No theme assigned to this booth.");
 
                     if (boothPrice != null)
-                        boothPrice.text = booth.price;
+                        boothPrice.text = booth.price.ToString();
 
-                    // Save booth settings
+                    // Save booth settings to PlayerPrefs
                     PlayerPrefs.SetString("booth_id", booth.booth_id);
-                    PlayerPrefs.SetString("booth_price", booth.price);
-                    PlayerPrefs.SetString("gacha_price", booth.gacha_price);
+                    PlayerPrefs.SetString("booth_price", booth.price.ToString());
+                    PlayerPrefs.SetString("gacha_price", booth.gacha_price.ToString());
                     PlayerPrefs.SetInt("payments_enabled", booth.payments_enabled ? 1 : 0);
+                    PlayerPrefs.SetInt("login_required", booth.login_required ? 1 : 0);
                     PlayerPrefs.Save();
 
-                    Debug.Log($"💾 Booth settings saved: ID={booth.booth_id}, Price={booth.price}, Gacha={booth.gacha_price}, Payments={booth.payments_enabled}");
+                    Debug.Log($"💾 Booth settings saved:");
+                    Debug.Log($"   • ID: {booth.booth_id}");
+                    Debug.Log($"   • Price: {booth.price}");
+                    Debug.Log($"   • Gacha: {booth.gacha_price}");
+                    Debug.Log($"   • Payments: {booth.payments_enabled}");
+                    Debug.Log($"   • Login Required: {booth.login_required}");
 
+                    // Show/hide QR generation button based on login_required
                     var loginManager = FindAnyObjectByType<LoginManager>();
-                    if (loginManager != null)
+                    if (loginManager != null && loginManager.generateQRButton != null)
                         loginManager.generateQRButton.gameObject.SetActive(booth.login_required);
 
-                    // LOG: Booth logged in
+                    // Log booth login
                     LoggingManager.Instance?.LogSystemEvent(
                         message: $"Booth logged in: {booth.booth_id}",
                         severity: LogSeverity.Info,
                         details: JsonUtility.ToJson(booth)
                     );
 
+                    // Activate main app panel
                     mainAppPanel.SetActive(true);
 
+                    // Fetch frames from server
                     var frameManager = FindAnyObjectByType<PhotoBoothFrameManager>();
                     if (frameManager != null)
                     {
@@ -197,7 +279,7 @@ public class VendorLogin : MonoBehaviour
                         StartCoroutine(frameManager.FetchFramesFromServer());
                     }
 
-                    // Start checking booth status
+                    // Start checking booth status periodically
                     StartCoroutine(CheckBoothStatusRoutine());
                 }
                 else
@@ -284,8 +366,10 @@ public class VendorLogin : MonoBehaviour
         Debug.Log("🔄 Switching vendor and resetting all data...");
 
         PlayerPrefs.DeleteKey("booth_id");
+        PlayerPrefs.DeleteKey("booth_price");
         PlayerPrefs.DeleteKey("gacha_price");
         PlayerPrefs.DeleteKey("payments_enabled");
+        PlayerPrefs.DeleteKey("login_required");
         PlayerPrefs.Save();
 
         currentBoothID = "";
@@ -325,7 +409,7 @@ public class VendorLogin : MonoBehaviour
     {
         while (!string.IsNullOrEmpty(currentBoothID))
         {
-            string url = $"{apiBaseURL}/api/photobooth/booths/{currentBoothID}";
+            string url = $"{API.BaseURL}/api/photobooth/booths/{currentBoothID}";
             using (UnityWebRequest request = UnityWebRequest.Get(url))
             {
                 yield return request.SendWebRequest();

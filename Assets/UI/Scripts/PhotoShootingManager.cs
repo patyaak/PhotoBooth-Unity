@@ -13,9 +13,6 @@ public class PhotoShootingManager : MonoBehaviour
 
     public UiController uiController;
 
-    [Header("API")]
-    public string apiBaseURL = "http://photo-stg-api.chvps3.aozora-okinawa.com/";
-
     [Header("Panels")]
     public GameObject photoShootPanel;
     public GameObject beautificationPanel;
@@ -401,7 +398,7 @@ public class PhotoShootingManager : MonoBehaviour
             yield break;
         }
 
-        string url = $"{apiBaseURL}api/order/upload-photo";
+        string url = $"{API.BaseURL}/api/order/upload-photo";
 
         byte[] photoBytes = photoTexture.EncodeToPNG();
 
