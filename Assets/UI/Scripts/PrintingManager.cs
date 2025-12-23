@@ -15,7 +15,7 @@ public class PrintingManager : MonoBehaviour
     [Header("Paper Size (inches)")]
     public float paperWidthInches = 4f;
     public float paperHeightInches = 6f;
-    public int dpi = 600; // Standard photo printing DPI for Epson
+    public int dpi = 600;
 
     private int PaperWidthPixels => Mathf.RoundToInt(paperWidthInches * dpi);
     private int PaperHeightPixels => Mathf.RoundToInt(paperHeightInches * dpi);
@@ -28,101 +28,258 @@ public class PrintingManager : MonoBehaviour
     public TMP_Text statusText;
     public TMP_Text errorText;
 
-    [Header("Completion Settings")]
+    [Header("Completion")]
     public float printingDoneDisplaySeconds = 3f;
 
     private Texture2D imageToPrint;
     private string currentFrameType = "portrait";
-    private bool printingComplete = false;
+    private bool printingComplete;
 
     [Header("Printer Monitoring")]
     public float printerRecheckInterval = 2.5f;
     private Coroutine printerMonitorRoutine;
 
-
     private void Awake()
     {
-        if (Instance == null)
-            Instance = this;
-        else
-            Destroy(gameObject);
+        if (Instance == null) Instance = this;
+        else Destroy(gameObject);
     }
 
     private void Start()
     {
-        if (printingPanel) printingPanel.SetActive(false);
-        if (inProgressPanel) inProgressPanel.SetActive(false);
-        if (printingDonePanel) printingDonePanel.SetActive(false);
-        if (errorPanel) errorPanel.SetActive(false);
+        printingPanel?.SetActive(false);
+        inProgressPanel?.SetActive(false);
+        printingDonePanel?.SetActive(false);
+        errorPanel?.SetActive(false);
 
 #if UNITY_STANDALONE_WIN && !UNITY_EDITOR
-    CheckPrinterStatusOnStartup();
+        CheckPrinterStatusOnStartup();
 #endif
-
     }
+
     private void CheckPrinterStatusOnStartup()
     {
-        string error;
-        bool ok = GetPrinterStatus(out error);
-
-        if (!ok)
-        {
+        if (!GetPrinterStatus(out string error))
             ShowError(error);
-            Debug.LogError("🖨️ Printer startup check failed: " + error);
-        }
-        else
-        {
-            Debug.Log("✅ Printer is ready");
-        }
     }
 
+    #region PRINTER STATUS
     private bool GetPrinterStatus(out string errorMessage)
     {
         errorMessage = "";
 
 #if UNITY_STANDALONE_WIN && !UNITY_EDITOR
+        try
+        {
+            string script = @"
+$printer = Get-WmiObject Win32_Printer | Where-Object { $_.Name -eq '" + printerName + @"' }
+
+if ($null -eq $printer) { 'NOT_FOUND'; exit }
+if ($printer.WorkOffline) { 'OFFLINE'; exit }
+if ($printer.PaperOut) { 'PAPER_OUT'; exit }
+if ($printer.DetectedErrorState -ne 0) { 'ERROR'; exit }
+
+'READY'
+";
+
+            var psi = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "powershell.exe",
+                Arguments = "-ExecutionPolicy Bypass -Command \"" + script + "\"",
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                CreateNoWindow = true
+            };
+
+            using var p = System.Diagnostics.Process.Start(psi);
+            string result = p.StandardOutput.ReadToEnd().Trim();
+
+            switch (result)
+            {
+                case "READY": return true;
+                case "NOT_FOUND": errorMessage = "プリンターが見つかりません"; break;
+                case "OFFLINE": errorMessage = "プリンターがオフラインです"; break;
+                case "PAPER_OUT": errorMessage = "用紙切れです"; break;
+                case "ERROR": errorMessage = "プリンターエラー"; break;
+                default: errorMessage = "プリンター状態不明"; break;
+            }
+            return false;
+        }
+        catch (Exception e)
+        {
+            errorMessage = e.Message;
+            return false;
+        }
+#else
+        return true;
+#endif
+    }
+    #endregion
+
+    #region PUBLIC API
+    public void PrintFinalImage(Texture2D image, string frameType = "portrait")
+    {
+        if (!GetPrinterStatus(out string error))
+        {
+            ShowError(error);
+            return;
+        }
+
+        imageToPrint = image;
+        currentFrameType = frameType.ToLower();
+        printingComplete = false;
+
+        StartCoroutine(PrintCoroutine(image));
+    }
+
+    public bool IsPrintingComplete() => printingComplete;
+    #endregion
+
+    #region PRINT FLOW
+    private IEnumerator PrintCoroutine(Texture2D source)
+    {
+        ShowPrintingPanel(true, false);
+        UpdateStatus("画像を準備中...");
+
+        Texture2D processed = source;
+
+        if (currentFrameType == "landscape")
+            processed = RotateTexture90Clockwise(source);
+
+        Texture2D fitted = FitToPaperWithCrop(processed, PaperWidthPixels, PaperHeightPixels);
+
+        UpdateStatus("印刷中...");
+        bool success = PrintWithPowerShell(fitted);
+
+        Destroy(fitted);
+
+        if (success)
+        {
+            ShowPrintingPanel(false, true);
+            yield return new WaitForSeconds(printingDoneDisplaySeconds);
+            ShowPrintingPanel(false, false);
+        }
+        else
+        {
+            ShowError("印刷に失敗しました");
+        }
+
+        printingComplete = true;
+    }
+    #endregion
+
+    #region IMAGE PROCESSING
+    private Texture2D RotateTexture90Clockwise(Texture2D src)
+    {
+        Texture2D tex = new Texture2D(src.height, src.width, TextureFormat.RGB24, false);
+        for (int x = 0; x < src.width; x++)
+            for (int y = 0; y < src.height; y++)
+                tex.SetPixel(src.height - 1 - y, x, src.GetPixel(x, y));
+        tex.Apply();
+        return tex;
+    }
+
+    private Texture2D FitToPaperWithCrop(Texture2D src, int pw, int ph)
+    {
+        float srcAspect = (float)src.width / src.height;
+        float paperAspect = (float)pw / ph;
+
+        int sw, sh;
+        if (srcAspect > paperAspect)
+        {
+            sh = ph;
+            sw = Mathf.RoundToInt(ph * srcAspect);
+        }
+        else
+        {
+            sw = pw;
+            sh = Mathf.RoundToInt(pw / srcAspect);
+        }
+
+        Texture2D scaled = ResizeTexture(src, sw, sh);
+        Texture2D paper = new Texture2D(pw, ph, TextureFormat.RGB24, false);
+
+        int x = (sw - pw) / 2;
+        int y = (sh - ph) / 2;
+
+        paper.SetPixels(scaled.GetPixels(x, y, pw, ph));
+        paper.Apply();
+
+        Destroy(scaled);
+        return paper;
+    }
+
+    private Texture2D ResizeTexture(Texture2D src, int w, int h)
+    {
+        RenderTexture rt = RenderTexture.GetTemporary(w, h);
+        Graphics.Blit(src, rt);
+        RenderTexture.active = rt;
+
+        Texture2D tex = new Texture2D(w, h, TextureFormat.RGB24, false);
+        tex.ReadPixels(new Rect(0, 0, w, h), 0, 0);
+        tex.Apply();
+
+        RenderTexture.ReleaseTemporary(rt);
+        RenderTexture.active = null;
+        return tex;
+    }
+    #endregion
+
+    #region WINDOWS PRINT (FIXED 4x6)
+    private bool PrintWithPowerShell(Texture2D img)
+    {
+#if UNITY_STANDALONE_WIN && !UNITY_EDITOR
     try
     {
+        string temp = Path.Combine(Path.GetTempPath(), $"print_{Guid.NewGuid()}.png");
+        File.WriteAllBytes(temp, img.EncodeToPNG());
+
+        Debug.Log($"🖨️ Printing {img.width}x{img.height}px image to 4x6 paper");
+
         string script = @"
-$printerName = '" + printerName.Replace(@"'", @"''") + @"'
-$printer = Get-WmiObject Win32_Printer | Where-Object { $_.Name -eq $printerName }
+Add-Type -AssemblyName System.Drawing
+Add-Type -AssemblyName System.Drawing.Printing
 
-if ($null -eq $printer) {
-    Write-Output 'NOT_FOUND'
-    exit
-}
+$image = [System.Drawing.Image]::FromFile('" + temp.Replace("\\", "\\\\") + @"')
 
-if ($printer.WorkOffline) {
-    Write-Output 'OFFLINE'
-    exit
-}
+$pd = New-Object System.Drawing.Printing.PrintDocument
+$pd.PrinterSettings.PrinterName = '" + printerName + @"'
 
-if ($printer.PrinterStatus -eq 3) {
-    Write-Output 'IDLE'
-    exit
-}
+$paper = New-Object System.Drawing.Printing.PaperSize('4x6', 400, 600)
+$pd.DefaultPageSettings.PaperSize = $paper
+$pd.DefaultPageSettings.Margins = New-Object System.Drawing.Printing.Margins(0,0,0,0)
 
-if ($printer.PrinterStatus -eq 4) {
-    Write-Output 'PRINTING'
-    exit
-}
+$pd.add_PrintPage({
+    param($s, $e)
+    
+    $paperW = $e.PageBounds.Width
+    $paperH = $e.PageBounds.Height
+    
+    $imgAspect = [double]$image.Width / [double]$image.Height
+    $paperAspect = [double]$paperW / [double]$paperH
+    
+    if ($imgAspect -gt $paperAspect) {
+        $w = $paperW
+        $h = $paperW / $imgAspect
+        $x = 0
+        $y = ($paperH - $h) / 2
+    } else {
+        $h = $paperH
+        $w = $paperH * $imgAspect
+        $x = ($paperW - $w) / 2
+        $y = 0
+    }
+    
+    $rect = New-Object System.Drawing.RectangleF($x, $y, $w, $h)
+    $e.Graphics.DrawImage($image, $rect)
+    
+    $e.HasMorePages = $false
+})
 
-if ($printer.PrinterStatus -eq 5) {
-    Write-Output 'WARMUP'
-    exit
-}
-
-if ($printer.DetectedErrorState -ne $null -and $printer.DetectedErrorState -ne 0) {
-    Write-Output 'ERROR'
-    exit
-}
-
-if ($printer.PaperOut) {
-    Write-Output 'PAPER_OUT'
-    exit
-}
-
-Write-Output 'READY'
+$pd.Print()
+$image.Dispose()
+Start-Sleep -Milliseconds 500
+Remove-Item '" + temp.Replace("\\", "\\\\") + @"' -Force
 ";
 
         var psi = new System.Diagnostics.ProcessStartInfo
@@ -131,340 +288,52 @@ Write-Output 'READY'
             Arguments = "-ExecutionPolicy Bypass -Command \"" + script + "\"",
             UseShellExecute = false,
             RedirectStandardOutput = true,
+            RedirectStandardError = true,
             CreateNoWindow = true
         };
 
-        using (var process = System.Diagnostics.Process.Start(psi))
+        var p = System.Diagnostics.Process.Start(psi);
+        string output = p.StandardOutput.ReadToEnd();
+        string error = p.StandardError.ReadToEnd();
+        p.WaitForExit(20000);
+        
+        if (!string.IsNullOrEmpty(error))
         {
-            string result = process.StandardOutput.ReadToEnd().Trim();
-            process.WaitForExit();
-
-            switch (result)
-            {
-                case "READY":
-                case "IDLE":
-                    return true;
-
-                case "NOT_FOUND":
-                    errorMessage = "プリンターが見つかりません\n\n設定されたプリンター名:\n" + printerName;
-                    return false;
-
-                case "OFFLINE":
-                    errorMessage = "プリンターがオフラインです\n\n電源・USB・LANを確認してください";
-                    return false;
-
-                case "PAPER_OUT":
-                    errorMessage = "用紙切れです\n\n用紙を補充してください";
-                    return false;
-
-                case "ERROR":
-                    errorMessage = "プリンターエラーが発生しています\n\nプリンター本体を確認してください";
-                    return false;
-
-                default:
-                    errorMessage = "プリンターの状態を確認できません\n\n状態: " + result;
-                    return false;
-            }
+            Debug.LogWarning($"⚠️ PowerShell stderr: {error}");
         }
+            
+        return p.ExitCode == 0;
     }
     catch (Exception e)
     {
-        errorMessage = "プリンター確認エラー\n\n" + e.Message;
+        Debug.LogError($"❌ Print error: {e.Message}");
         return false;
     }
 #else
         return true;
 #endif
     }
+    #endregion
 
-
-    public void PrintFinalImage(Texture2D composedImage, string frameType = "portrait")
+    #region UI
+    private void UpdateStatus(string t)
     {
-
-        string error;
-        if (!GetPrinterStatus(out error))
-        {
-            ShowError(error);
-            return;
-        }
-        if (composedImage == null)
-        {
-            Debug.LogError("Print error: image is null");
-            return;
-        }
-
-        currentFrameType = frameType.ToLower();
-        imageToPrint = composedImage;
-        printingComplete = false;
-        StartCoroutine(PrintCoroutine(composedImage));
+        if (statusText) statusText.text = t;
     }
 
-    public bool IsPrintingComplete()
+    private void ShowPrintingPanel(bool progress, bool done)
     {
-        return printingComplete;
-    }
-
-    private IEnumerator PrintCoroutine(Texture2D source)
-    {
-        ShowPrintingPanel(true, false);
-        UpdateStatus("画像を準備中...", 0.2f);
-
-        Debug.Log($"📄 Frame Type: {currentFrameType} | Source Size: {source.width}x{source.height}");
-
-        Texture2D processedImage = source;
-
-        // Step 1: Rotate landscape images 90° clockwise
-        if (currentFrameType == "landscape")
-        {
-            UpdateStatus("画像を回転中...", 0.3f);
-            processedImage = RotateTexture90Clockwise(source);
-            Debug.Log($"🔄 Rotated landscape {source.width}x{source.height} → {processedImage.width}x{processedImage.height}");
-        }
-
-        // Step 2: Fit to paper WITH CROP (maintains aspect ratio, crops to fill)
-        UpdateStatus("用紙サイズに調整中...", 0.5f);
-        Texture2D fitted = FitToPaperWithCrop(processedImage, PaperWidthPixels, PaperHeightPixels);
-
-        if (processedImage != source)
-            Destroy(processedImage);
-
-        // Step 3: Save debug image
-        UpdateStatus("印刷準備中...", 0.7f);
-        string debugFolder = Path.Combine(Application.persistentDataPath, "PrintDebug");
-        Directory.CreateDirectory(debugFolder);
-        string debugPath = Path.Combine(debugFolder, $"PRINT_{currentFrameType}_{DateTime.Now:yyyyMMdd_HHmmss}.png");
-        File.WriteAllBytes(debugPath, fitted.EncodeToPNG());
-        Debug.Log($"📸 DEBUG IMAGE SAVED → {debugPath}");
-        Debug.Log($"📐 Final print size: {fitted.width}x{fitted.height}px ({fitted.width / (float)dpi:F2}x{fitted.height / (float)dpi:F2} inches)");
-
-        UpdateStatus("印刷中...", 0.8f);
-
-        // Step 4: Print (color printing)
-        bool success = PrintWithPowerShell(fitted);
-        if (fitted != source) Destroy(fitted);
-
-        if (success)
-        {
-            UpdateStatus("印刷完了！", 1f);
-            yield return new WaitForSeconds(0.5f);
-            ShowPrintingPanel(false, true);
-            Debug.Log($"✅ Printing successful! Showing completion for {printingDoneDisplaySeconds} seconds");
-            yield return new WaitForSeconds(printingDoneDisplaySeconds);
-            ShowPrintingPanel(false, false);
-            printingComplete = true;
-        }
-        else
-        {
-            ShowError($"印刷失敗\n\nプリンター名: \"{printerName}\"\n\nWindowsの「プリンターとスキャナー」で名前を確認してください");
-            printingComplete = true;
-        }
-    }
-
-    private void ShowPrintingPanel(bool showInProgress, bool showDone)
-    {
-        if (printingPanel != null)
-            printingPanel.SetActive(showInProgress || showDone);
-
-        if (inProgressPanel != null)
-            inProgressPanel.SetActive(showInProgress);
-
-        if (printingDonePanel != null)
-            printingDonePanel.SetActive(showDone);
-
-        if (errorPanel != null)
-            errorPanel.SetActive(false);
-    }
-
-    private Texture2D RotateTexture90Clockwise(Texture2D source)
-    {
-        int width = source.width;
-        int height = source.height;
-
-        Texture2D rotated = new Texture2D(height, width, TextureFormat.RGB24, false);
-
-        for (int x = 0; x < width; x++)
-        {
-            for (int y = 0; y < height; y++)
-            {
-                rotated.SetPixel(height - 1 - y, x, source.GetPixel(x, y));
-            }
-        }
-
-        rotated.Apply();
-        return rotated;
-    }
-
-    /// <summary>
-    /// Fit to paper WITH CROP - maintains aspect ratio, crops edges to fill entire paper
-    /// </summary>
-    private Texture2D FitToPaperWithCrop(Texture2D source, int paperWidth, int paperHeight)
-    {
-        float sourceAspect = (float)source.width / source.height;
-        float paperAspect = (float)paperWidth / paperHeight;
-
-        int scaledWidth, scaledHeight;
-
-        // Scale to COVER the paper (opposite of FIT)
-        if (sourceAspect > paperAspect)
-        {
-            // Source is wider - scale to match HEIGHT, crop WIDTH
-            scaledHeight = paperHeight;
-            scaledWidth = Mathf.RoundToInt(paperHeight * sourceAspect);
-        }
-        else
-        {
-            // Source is taller - scale to match WIDTH, crop HEIGHT
-            scaledWidth = paperWidth;
-            scaledHeight = Mathf.RoundToInt(paperWidth / sourceAspect);
-        }
-
-        // Resize to scaled dimensions
-        Texture2D scaled = ResizeTexture(source, scaledWidth, scaledHeight);
-
-        // Create paper texture
-        Texture2D paper = new Texture2D(paperWidth, paperHeight, TextureFormat.RGB24, false);
-
-        // Calculate crop offsets (center crop)
-        int xOffset = (scaledWidth - paperWidth) / 2;
-        int yOffset = (scaledHeight - paperHeight) / 2;
-
-        // Copy cropped portion
-        Color[] croppedPixels = scaled.GetPixels(xOffset, yOffset, paperWidth, paperHeight);
-        paper.SetPixels(croppedPixels);
-        paper.Apply();
-
-        if (scaled != source)
-            Destroy(scaled);
-
-        Debug.Log($"📦 Fit with CROP: {source.width}x{source.height} → scaled to {scaledWidth}x{scaledHeight} → cropped to {paperWidth}x{paperHeight}");
-        Debug.Log($"   ✂️ Cropped {xOffset}px from sides, {yOffset}px from top/bottom (maintains aspect ratio, full bleed)");
-
-        return paper;
-    }
-
-    private Texture2D ResizeTexture(Texture2D source, int newWidth, int newHeight)
-    {
-        if (source.width == newWidth && source.height == newHeight)
-            return source;
-
-        RenderTexture rt = RenderTexture.GetTemporary(newWidth, newHeight);
-        RenderTexture.active = rt;
-        Graphics.Blit(source, rt);
-
-        Texture2D result = new Texture2D(newWidth, newHeight, TextureFormat.RGB24, false);
-        result.ReadPixels(new Rect(0, 0, newWidth, newHeight), 0, 0);
-        result.Apply();
-
-        RenderTexture.active = null;
-        RenderTexture.ReleaseTemporary(rt);
-        return result;
-    }
-
-    private bool PrintWithPowerShell(Texture2D img)
-    {
-#if UNITY_STANDALONE_WIN && !UNITY_EDITOR
-        try
-        {
-            string tempFile = Path.Combine(Path.GetTempPath(), $"print_{Guid.NewGuid()}.png");
-            File.WriteAllBytes(tempFile, img.EncodeToPNG());
-
-            string script = @"
-$imgPath = '" + tempFile.Replace(@"\", @"\\") + @"'
-$printer = '" + printerName.Replace(@"'", @"''") + @"'
-
-Add-Type -AssemblyName System.Drawing
-$image = [System.Drawing.Image]::FromFile($imgPath)
-
-$pd = New-Object System.Drawing.Printing.PrintDocument
-$pd.PrinterSettings.PrinterName = $printer
-$pd.DefaultPageSettings.Margins = New-Object System.Drawing.Printing.Margins(0,0,0,0)
-
-$pd.add_PrintPage({
-    param($sender, $e)
-    $e.Graphics.DrawImage($image, 0, 0, $image.Width, $image.Height)
-    $e.HasMorePages = $false
-})
-
-$pd.Print()
-$image.Dispose()
-Remove-Item $imgPath -Force
-";
-
-            var startInfo = new System.Diagnostics.ProcessStartInfo
-            {
-                FileName = "powershell.exe",
-                Arguments = $"-ExecutionPolicy Bypass -Command \"{script}\"",
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                RedirectStandardError = true
-            };
-
-            using (var process = System.Diagnostics.Process.Start(startInfo))
-            {
-                process.WaitForExit(20000);
-                return process.ExitCode == 0;
-            }
-        }
-        catch (Exception e)
-        {
-            Debug.LogError("Print failed: " + e.Message);
-            return false;
-        }
-#else
-        Debug.Log($"✅ Print simulated (Editor) - Would print {img.width}x{img.height}px image");
-        return true;
-#endif
-    }
-
-    private void UpdateStatus(string text, float progress)
-    {
-        if (statusText) statusText.text = text;
+        printingPanel?.SetActive(progress || done);
+        inProgressPanel?.SetActive(progress);
+        printingDonePanel?.SetActive(done);
+        errorPanel?.SetActive(false);
     }
 
     private void ShowError(string msg)
     {
-        if (errorPanel) errorPanel.SetActive(true);
-        if (errorText) errorText.text = msg;
-        if (statusText) statusText.text = "印刷エラー";
-
-        if (printingPanel) printingPanel.SetActive(false);
-        if (inProgressPanel) inProgressPanel.SetActive(false);
-        if (printingDonePanel) printingDonePanel.SetActive(false);
-
-#if UNITY_STANDALONE_WIN && !UNITY_EDITOR
-    if (printerMonitorRoutine == null)
-        printerMonitorRoutine = StartCoroutine(MonitorPrinterStatus());
-#endif
+        errorPanel?.SetActive(true);
+        errorText.text = msg;
+        printingPanel?.SetActive(false);
     }
-
-    private IEnumerator MonitorPrinterStatus()
-    {
-        Debug.Log("🔄 Started monitoring printer status...");
-
-        while (true)
-        {
-            string error;
-            bool ready = GetPrinterStatus(out error);
-
-            if (ready)
-            {
-                Debug.Log("✅ Printer recovered");
-
-                if (errorPanel) errorPanel.SetActive(false);
-                if (statusText) statusText.text = "";
-
-                printerMonitorRoutine = null;
-                yield break;
-            }
-
-            yield return new WaitForSeconds(printerRecheckInterval);
-        }
-    }
-
-
-    public void RetryLastPrint()
-    {
-        if (imageToPrint != null)
-            StartCoroutine(PrintCoroutine(imageToPrint));
-    }
+    #endregion
 }
