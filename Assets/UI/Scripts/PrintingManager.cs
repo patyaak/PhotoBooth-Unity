@@ -1,6 +1,8 @@
 ﻿using System;
 using System.Collections;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
@@ -31,18 +33,36 @@ public class PrintingManager : MonoBehaviour
     [Header("Completion")]
     public float printingDoneDisplaySeconds = 3f;
 
-    private Texture2D imageToPrint;
-    private string currentFrameType = "portrait";
-    private bool printingComplete;
+    [Header("Printer Selection UI (Assign in Start Scene)")]
+    public TMP_Dropdown printerDropdown;
+    public Button refreshPrintersButton;
+    public TMP_Text printerStatusText;
+    public Button testPrintButton;
 
     [Header("Printer Monitoring")]
     public float printerRecheckInterval = 2.5f;
     private Coroutine printerMonitorRoutine;
 
+    // Printer list
+    public List<string> availablePrinters = new List<string>();
+    
+    private Texture2D imageToPrint;
+    private string currentFrameType = "portrait";
+    private bool printingComplete;
+    
+    private const string PRINTER_PREF_KEY = "SelectedPrinter";
+
     private void Awake()
     {
-        if (Instance == null) Instance = this;
-        else Destroy(gameObject);
+        if (Instance == null)
+        {
+            Instance = this;
+            DontDestroyOnLoad(gameObject); // Persist across scenes
+        }
+        else
+        {
+            Destroy(gameObject);
+        }
     }
 
     private void Start()
@@ -52,19 +72,224 @@ public class PrintingManager : MonoBehaviour
         printingDonePanel?.SetActive(false);
         errorPanel?.SetActive(false);
 
+        // Load saved printer preference
+        LoadSavedPrinter();
+
+        // Setup UI listeners if dropdown exists (Start Scene)
+        SetupPrinterSelectionUI();
+
 #if UNITY_STANDALONE_WIN && !UNITY_EDITOR
         CheckPrinterStatusOnStartup();
 #endif
     }
 
-    private void CheckPrinterStatusOnStartup()
+    #region PRINTER SELECTION & DETECTION
+
+    /// <summary>
+    /// Load previously saved printer from PlayerPrefs
+    /// </summary>
+    private void LoadSavedPrinter()
     {
-        if (!GetPrinterStatus(out string error))
-            ShowError(error);
+        if (PlayerPrefs.HasKey(PRINTER_PREF_KEY))
+        {
+            printerName = PlayerPrefs.GetString(PRINTER_PREF_KEY);
+            Debug.Log($"✓ Loaded saved printer: {printerName}");
+        }
+        else
+        {
+            Debug.Log($"No saved printer. Using default: {printerName}");
+        }
     }
 
+    /// <summary>
+    /// Save selected printer to PlayerPrefs (persists forever until changed)
+    /// </summary>
+    private void SaveSelectedPrinter(string printer)
+    {
+        printerName = printer;
+        PlayerPrefs.SetString(PRINTER_PREF_KEY, printer);
+        PlayerPrefs.Save();
+        Debug.Log($"✓ Saved printer: {printer}");
+    }
+
+    /// <summary>
+    /// Get all installed printers on the system
+    /// </summary>
+    public List<string> GetInstalledPrinters()
+    {
+#if UNITY_STANDALONE_WIN && !UNITY_EDITOR
+        try
+        {
+            string script = @"Get-WmiObject Win32_Printer | ForEach-Object { $_.Name }";
+
+            var psi = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "powershell.exe",
+                Arguments = "-ExecutionPolicy Bypass -Command \"" + script + "\"",
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                CreateNoWindow = true
+            };
+
+            using var p = System.Diagnostics.Process.Start(psi);
+            string output = p.StandardOutput.ReadToEnd();
+            
+            availablePrinters = output.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
+                                      .Where(s => !string.IsNullOrWhiteSpace(s))
+                                      .Select(s => s.Trim())
+                                      .ToList();
+            
+            Debug.Log($"Found {availablePrinters.Count} printers");
+            return availablePrinters;
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"Failed to get printers: {e.Message}");
+            return new List<string>();
+        }
+#else
+        // For Unity Editor testing
+        availablePrinters = new List<string> { "Test Printer 1", "EPSON SL-D1050", "Canon Printer" };
+        return availablePrinters;
+#endif
+    }
+
+    /// <summary>
+    /// Setup dropdown and buttons if they exist (for Start Scene)
+    /// </summary>
+    private void SetupPrinterSelectionUI()
+    {
+        if (printerDropdown != null)
+        {
+            printerDropdown.onValueChanged.AddListener(OnPrinterSelectedFromDropdown);
+            RefreshPrinterList();
+        }
+
+        if (refreshPrintersButton != null)
+        {
+            refreshPrintersButton.onClick.AddListener(RefreshPrinterList);
+        }
+
+        if (testPrintButton != null)
+        {
+            testPrintButton.onClick.AddListener(TestPrint);
+        }
+    }
+
+    /// <summary>
+    /// Refresh printer list and update dropdown
+    /// </summary>
+    public void RefreshPrinterList()
+    {
+        if (printerDropdown == null) return;
+
+        List<string> printers = GetInstalledPrinters();
+        
+        printerDropdown.ClearOptions();
+
+        if (printers.Count == 0)
+        {
+            UpdatePrinterStatus("プリンターが見つかりません", false);
+            return;
+        }
+
+        printerDropdown.AddOptions(printers);
+
+        // Try to select the currently saved printer
+        int currentIndex = printers.IndexOf(printerName);
+        if (currentIndex >= 0)
+        {
+            printerDropdown.value = currentIndex;
+        }
+        else if (printers.Count > 0)
+        {
+            printerDropdown.value = 0;
+            OnPrinterSelectedFromDropdown(0);
+        }
+
+        // Check status of selected printer
+        CheckAndUpdatePrinterStatus();
+    }
+
+    /// <summary>
+    /// Called when user selects a printer from dropdown
+    /// </summary>
+    private void OnPrinterSelectedFromDropdown(int index)
+    {
+        if (index < 0 || index >= availablePrinters.Count) return;
+
+        string selected = availablePrinters[index];
+        SaveSelectedPrinter(selected);
+        CheckAndUpdatePrinterStatus();
+    }
+
+    /// <summary>
+    /// Check printer status and update UI
+    /// </summary>
+    private void CheckAndUpdatePrinterStatus()
+    {
+        if (printerStatusText == null) return;
+
+        bool isReady = GetPrinterStatus(printerName, out string error);
+        
+        if (isReady)
+        {
+            UpdatePrinterStatus($"✓ {printerName} - 準備完了", true);
+        }
+        else
+        {
+            UpdatePrinterStatus($"✗ {printerName} - {error}", false);
+        }
+    }
+
+    /// <summary>
+    /// Update printer status text and color
+    /// </summary>
+    private void UpdatePrinterStatus(string message, bool isReady)
+    {
+        if (printerStatusText != null)
+        {
+            printerStatusText.text = message;
+            printerStatusText.color = isReady ? Color.green : Color.red;
+        }
+    }
+
+    /// <summary>
+    /// Test print a sample pattern
+    /// </summary>
+    private void TestPrint()
+    {
+        // Create a simple test pattern
+        Texture2D testImage = new Texture2D(800, 600, TextureFormat.RGB24, false);
+        Color[] pixels = new Color[800 * 600];
+        
+        // Create a simple gradient test pattern
+        for (int y = 0; y < 600; y++)
+        {
+            for (int x = 0; x < 800; x++)
+            {
+                float r = (float)x / 800;
+                float g = (float)y / 600;
+                pixels[y * 800 + x] = new Color(r, g, 0.5f);
+            }
+        }
+        
+        testImage.SetPixels(pixels);
+        testImage.Apply();
+
+        PrintFinalImage(testImage, "portrait");
+        
+        Debug.Log("Test print initiated");
+    }
+
+    #endregion
+
     #region PRINTER STATUS
-    private bool GetPrinterStatus(out string errorMessage)
+    
+    /// <summary>
+    /// Check if specific printer is ready to print
+    /// </summary>
+    public bool GetPrinterStatus(string printer, out string errorMessage)
     {
         errorMessage = "";
 
@@ -72,7 +297,7 @@ public class PrintingManager : MonoBehaviour
         try
         {
             string script = @"
-$printer = Get-WmiObject Win32_Printer | Where-Object { $_.Name -eq '" + printerName + @"' }
+$printer = Get-WmiObject Win32_Printer | Where-Object { $_.Name -eq '" + printer + @"' }
 
 if ($null -eq $printer) { 'NOT_FOUND'; exit }
 if ($printer.WorkOffline) { 'OFFLINE'; exit }
@@ -111,12 +336,28 @@ if ($printer.DetectedErrorState -ne 0) { 'ERROR'; exit }
             return false;
         }
 #else
-        return true;
+        return true; // Always return true in editor
 #endif
     }
+
+    /// <summary>
+    /// Check status of currently selected printer
+    /// </summary>
+    private bool GetPrinterStatus(out string errorMessage)
+    {
+        return GetPrinterStatus(printerName, out errorMessage);
+    }
+
+    private void CheckPrinterStatusOnStartup()
+    {
+        if (!GetPrinterStatus(out string error))
+            ShowError(error);
+    }
+    
     #endregion
 
     #region PUBLIC API
+    
     public void PrintFinalImage(Texture2D image, string frameType = "portrait")
     {
         if (!GetPrinterStatus(out string error))
@@ -128,14 +369,21 @@ if ($printer.DetectedErrorState -ne 0) { 'ERROR'; exit }
         imageToPrint = image;
         currentFrameType = frameType.ToLower();
         printingComplete = false;
-
+        Debug.Log(frameType);
         StartCoroutine(PrintCoroutine(image));
     }
 
     public bool IsPrintingComplete() => printingComplete;
+    
+    /// <summary>
+    /// Get currently selected printer name
+    /// </summary>
+    public string GetCurrentPrinterName() => printerName;
+    
     #endregion
 
     #region PRINT FLOW
+    
     private IEnumerator PrintCoroutine(Texture2D source)
     {
         ShowPrintingPanel(true, false);
@@ -166,9 +414,11 @@ if ($printer.DetectedErrorState -ne 0) { 'ERROR'; exit }
 
         printingComplete = true;
     }
+    
     #endregion
 
     #region IMAGE PROCESSING
+    
     private Texture2D RotateTexture90Clockwise(Texture2D src)
     {
         Texture2D tex = new Texture2D(src.height, src.width, TextureFormat.RGB24, false);
@@ -223,20 +473,22 @@ if ($printer.DetectedErrorState -ne 0) { 'ERROR'; exit }
         RenderTexture.active = null;
         return tex;
     }
+    
     #endregion
 
     #region WINDOWS PRINT (FIXED 4x6)
+    
     private bool PrintWithPowerShell(Texture2D img)
     {
 #if UNITY_STANDALONE_WIN && !UNITY_EDITOR
-    try
-    {
-        string temp = Path.Combine(Path.GetTempPath(), $"print_{Guid.NewGuid()}.png");
-        File.WriteAllBytes(temp, img.EncodeToPNG());
+        try
+        {
+            string temp = Path.Combine(Path.GetTempPath(), $"print_{Guid.NewGuid()}.png");
+            File.WriteAllBytes(temp, img.EncodeToPNG());
 
-        Debug.Log($"🖨️ Printing {img.width}x{img.height}px image to 4x6 paper");
+            Debug.Log($"🖨️ Printing {img.width}x{img.height}px to {printerName}");
 
-        string script = @"
+            string script = @"
 Add-Type -AssemblyName System.Drawing
 Add-Type -AssemblyName System.Drawing.Printing
 
@@ -282,40 +534,43 @@ Start-Sleep -Milliseconds 500
 Remove-Item '" + temp.Replace("\\", "\\\\") + @"' -Force
 ";
 
-        var psi = new System.Diagnostics.ProcessStartInfo
-        {
-            FileName = "powershell.exe",
-            Arguments = "-ExecutionPolicy Bypass -Command \"" + script + "\"",
-            UseShellExecute = false,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            CreateNoWindow = true
-        };
+            var psi = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "powershell.exe",
+                Arguments = "-ExecutionPolicy Bypass -Command \"" + script + "\"",
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true
+            };
 
-        var p = System.Diagnostics.Process.Start(psi);
-        string output = p.StandardOutput.ReadToEnd();
-        string error = p.StandardError.ReadToEnd();
-        p.WaitForExit(20000);
-        
-        if (!string.IsNullOrEmpty(error))
-        {
-            Debug.LogWarning($"⚠️ PowerShell stderr: {error}");
-        }
+            var p = System.Diagnostics.Process.Start(psi);
+            string output = p.StandardOutput.ReadToEnd();
+            string error = p.StandardError.ReadToEnd();
+            p.WaitForExit(20000);
             
-        return p.ExitCode == 0;
-    }
-    catch (Exception e)
-    {
-        Debug.LogError($"❌ Print error: {e.Message}");
-        return false;
-    }
+            if (!string.IsNullOrEmpty(error))
+            {
+                Debug.LogWarning($"⚠️ PowerShell stderr: {error}");
+            }
+                
+            return p.ExitCode == 0;
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"❌ Print error: {e.Message}");
+            return false;
+        }
 #else
+        Debug.Log($"[EDITOR] Would print to: {printerName}");
         return true;
 #endif
     }
+    
     #endregion
 
     #region UI
+    
     private void UpdateStatus(string t)
     {
         if (statusText) statusText.text = t;
@@ -332,8 +587,9 @@ Remove-Item '" + temp.Replace("\\", "\\\\") + @"' -Force
     private void ShowError(string msg)
     {
         errorPanel?.SetActive(true);
-        errorText.text = msg;
+        if (errorText) errorText.text = msg;
         printingPanel?.SetActive(false);
     }
+    
     #endregion
 }
