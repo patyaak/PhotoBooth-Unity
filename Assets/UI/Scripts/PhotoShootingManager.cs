@@ -1,5 +1,7 @@
-﻿using System.Collections;
+﻿using System;
+using System.Collections;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using Mediapipe.Unity.Tutorial;
 using TMPro;
@@ -450,18 +452,44 @@ public class PhotoShootingManager : MonoBehaviour
             }
         }
     }
-
+    /// <summary>
+    /// Saves texture to persistent data path (works in both Editor and Build)
+    /// </summary>
     private void SaveTextureToFile(Texture2D texture, string filename)
     {
-        byte[] bytes = texture.EncodeToPNG();
-        string path = System.IO.Path.Combine(Application.persistentDataPath, filename);
-        System.IO.File.WriteAllBytes(path, bytes);
-        Debug.Log($"💾 Debug: Saved texture to: {path}");
+        try
+        {
+            // Create debug folder if it doesn't exist
+            string debugFolder = Path.Combine(Application.persistentDataPath, "DebugPhotos");
+
+            if (!Directory.Exists(debugFolder))
+            {
+                Directory.CreateDirectory(debugFolder);
+                Debug.Log($"📁 Created debug folder: {debugFolder}");
+            }
+
+            // Full path
+            string fullPath = Path.Combine(debugFolder, filename);
+
+            // Encode and save
+            byte[] bytes = texture.EncodeToPNG();
+            if (bytes != null && bytes.Length > 0)
+            {
+                File.WriteAllBytes(fullPath, bytes);
+                Debug.Log($"✅ Photo saved to: {fullPath}");
+                Debug.Log($"📊 File size: {bytes.Length / 1024}KB ({texture.width}x{texture.height}px)");
+            }
+            else
+            {
+                Debug.LogError("❌ Failed to encode texture to PNG!");
+            }
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"❌ Failed to save texture: {e.Message}");
+        }
     }
 
-    // ============================================================
-    // UPDATED MAIN COMPOSITION WITH DISPLAY → PRINT → RESET FLOW
-    // ============================================================
     private IEnumerator ApplyPhotosWithFrame()
     {
         // Show loading at the beginning
@@ -513,7 +541,11 @@ public class PhotoShootingManager : MonoBehaviour
             GameObject go = new GameObject("frame", typeof(RectTransform));
             go.transform.SetParent(frameObj.transform, false);
             frameContainer = go.transform;
-            frameContainer.GetComponent<RectTransform>().sizeDelta = new Vector2(frameTex.width, frameTex.height);
+            RectTransform frt = frameContainer.GetComponent<RectTransform>();
+            frt.anchorMin = frt.anchorMax = new Vector2(0.5f, 0.5f);
+            frt.pivot = new Vector2(0.5f, 0.5f);
+            frt.anchoredPosition = Vector2.zero;
+            frt.sizeDelta = new Vector2(frameTex.width, frameTex.height);
         }
 
         Transform capturedImagesParent = frameContainer.Find("capturedImages");
@@ -575,16 +607,22 @@ public class PhotoShootingManager : MonoBehaviour
         frameImage.sprite = Sprite.Create(frameTex, new Rect(0, 0, frameTex.width, frameTex.height), Vector2.one * 0.5f);
         frameImage.preserveAspect = false;
 
-        RectTransform frt = frameImgChild.GetComponent<RectTransform>();
-        frt.anchorMin = frt.anchorMax = new Vector2(0.5f, 0.5f);
-        frt.pivot = new Vector2(0.5f, 0.5f);
-        frt.anchoredPosition = Vector2.zero;
-        frt.sizeDelta = new Vector2(frameTex.width, frameTex.height);
+        RectTransform frameRT = frameImgChild.GetComponent<RectTransform>();
+        frameRT.anchorMin = frameRT.anchorMax = new Vector2(0.5f, 0.5f);
+        frameRT.pivot = new Vector2(0.5f, 0.5f);
+        frameRT.anchoredPosition = Vector2.zero;
+        frameRT.sizeDelta = new Vector2(frameTex.width, frameTex.height);
+
+        // === CRITICAL: Force exact size on frameContainer ===
+        RectTransform containerRT = frameContainer.GetComponent<RectTransform>();
+        containerRT.sizeDelta = new Vector2(frameTex.width, frameTex.height);
+        containerRT.anchoredPosition = Vector2.zero;
 
         // === FINAL RENDER & CAPTURE ===
         yield return new WaitForEndOfFrame();
         yield return new WaitForEndOfFrame();
         Canvas.ForceUpdateCanvases();
+        LayoutRebuilder.ForceRebuildLayoutImmediate(containerRT);
         yield return new WaitForEndOfFrame();
 
         // Hide loading panel BEFORE capture
@@ -592,22 +630,31 @@ public class PhotoShootingManager : MonoBehaviour
 
         yield return new WaitForEndOfFrame();
 
-        // Capture the final composed image
-        finalComposedImageForPrint = CaptureTransformContent(capturedImagesParent);
+        // 🔥 RENDER FRAME TO TEXTURE (No screen capture - pure rendering)
+        finalComposedImageForPrint = RenderFrameToTexture(frameContainer, frameTex.width, frameTex.height);
 
-#if UNITY_EDITOR
+        if (finalComposedImageForPrint == null)
+        {
+            Debug.LogError("❌ Failed to render final image!");
+            yield break;
+        }
+
+        // 💾 SAVE DEBUG PHOTO (Works in both Editor and Build)
         if (finalComposedImageForPrint != null)
-            SaveTextureToFile(finalComposedImageForPrint, "DEBUG_FINAL_PHOTO_WITH_FRAME.png");
-#endif
+        {
+            string timestamp = System.DateTime.Now.ToString("yyyyMMdd_HHmmss");
+           // string userId = PlayerPrefs.GetString("user_id", "guest");
+            string filename = $"PHOTO_{timestamp}.png";
 
-        // STEP 1: SHOW FRAME DISPLAY FOR 5 SECONDS
+            SaveTextureToFile(finalComposedImageForPrint, filename);
+        }
+
+        // STEP 1: SHOW FRAME DISPLAY FOR PREVIEW
         Debug.Log($"🖼️ Displaying frame with photos for {previewDurationSeconds} seconds...");
 
-        // Keep the instantiated frame visible
         if (instantiatedFrameObject != null)
             instantiatedFrameObject.SetActive(true);
 
-        // Wait for preview duration
         yield return new WaitForSeconds(previewDurationSeconds);
 
         // STEP 2: START PRINTING PROCESS
@@ -617,12 +664,9 @@ public class PhotoShootingManager : MonoBehaviour
 
             if (PrintingManager.Instance != null)
             {
-                // This will handle the printing panel states internally
                 PrintingManager.Instance.PrintFinalImage(finalComposedImageForPrint, frameType);
-
-                // Wait for printing to complete
-                yield return new WaitUntil(() => PrintingManager.Instance.IsPrintingComplete());
-
+                //yield return new WaitUntil(() => PrintingManager.Instance.IsPrintingComplete());
+                yield return new WaitForSeconds(0.5f);
                 Debug.Log("✅ Printing workflow completed!");
             }
             else
@@ -658,6 +702,168 @@ public class PhotoShootingManager : MonoBehaviour
         ResetToLoginScreen();
     }
 
+
+    private Texture2D RenderFrameToTexture(Transform frameTransform, float width, float height)
+    {
+        int targetWidth = Mathf.RoundToInt(width);
+        int targetHeight = Mathf.RoundToInt(height);
+
+        Debug.Log($"🎨 Manually compositing frame: {targetWidth}x{targetHeight}px");
+
+        // Create base texture with white background
+        Texture2D finalTexture = new Texture2D(targetWidth, targetHeight, TextureFormat.RGB24, false);
+        Color[] pixels = new Color[targetWidth * targetHeight];
+
+        // Fill with white
+        for (int i = 0; i < pixels.Length; i++)
+            pixels[i] = Color.white;
+
+        finalTexture.SetPixels(pixels);
+        finalTexture.Apply();
+
+        // Find all Image components in the frame hierarchy
+        Transform capturedImagesParent = frameTransform.Find("capturedImages");
+        if (capturedImagesParent == null)
+        {
+            Debug.LogError("❌ capturedImages not found!");
+            return finalTexture;
+        }
+
+        List<ImageData> imagesToComposite = new List<ImageData>();
+
+        // Collect all photos first
+        foreach (Transform child in capturedImagesParent)
+        {
+            if (child.name == "frameImg") continue; // Skip frame, add it last
+
+            Image img = child.GetComponent<Image>();
+            RectTransform rt = child.GetComponent<RectTransform>();
+
+            if (img != null && img.sprite != null && rt != null)
+            {
+                imagesToComposite.Add(new ImageData
+                {
+                    texture = img.sprite.texture,
+                    rectTransform = rt,
+                    sortOrder = child.GetSiblingIndex()
+                });
+            }
+        }
+
+        // Add frame image last (on top)
+        Transform frameImg = capturedImagesParent.Find("frameImg");
+        if (frameImg != null)
+        {
+            Image img = frameImg.GetComponent<Image>();
+            RectTransform rt = frameImg.GetComponent<RectTransform>();
+
+            if (img != null && img.sprite != null && rt != null)
+            {
+                imagesToComposite.Add(new ImageData
+                {
+                    texture = img.sprite.texture,
+                    rectTransform = rt,
+                    sortOrder = 9999 // Always on top
+                });
+            }
+        }
+
+        // Sort by order
+        imagesToComposite.Sort((a, b) => a.sortOrder.CompareTo(b.sortOrder));
+
+        // Composite all images onto base texture
+        foreach (var data in imagesToComposite)
+        {
+            BlitImageOntoTexture(finalTexture, data.texture, data.rectTransform, targetWidth, targetHeight);
+        }
+
+        finalTexture.Apply();
+
+        Debug.Log($"✅ Composited {imagesToComposite.Count} images into final texture");
+
+        return finalTexture;
+    }
+
+    private class ImageData
+    {
+        public Texture2D texture;
+        public RectTransform rectTransform;
+        public int sortOrder;
+    }
+
+    /// <summary>
+    /// Blit one texture onto another at the correct position
+    /// </summary>
+    private void BlitImageOntoTexture(Texture2D target, Texture2D source, RectTransform rt, int frameWidth, int frameHeight)
+    {
+        if (source == null || rt == null) return;
+
+        // Get image dimensions and position relative to center
+        float imgWidth = rt.sizeDelta.x;
+        float imgHeight = rt.sizeDelta.y;
+        Vector2 imgPos = rt.anchoredPosition;
+
+        // Convert to pixel coordinates (canvas center is 0,0)
+        int centerX = frameWidth / 2;
+        int centerY = frameHeight / 2;
+
+        int destX = centerX + Mathf.RoundToInt(imgPos.x - imgWidth / 2f);
+        int destY = centerY + Mathf.RoundToInt(imgPos.y - imgHeight / 2f);
+
+        int destWidth = Mathf.RoundToInt(imgWidth);
+        int destHeight = Mathf.RoundToInt(imgHeight);
+
+        Debug.Log($"   Blitting {source.width}x{source.height} to ({destX},{destY}) size:{destWidth}x{destHeight}");
+
+        // Scale source if needed
+        Texture2D scaledSource = source;
+        if (source.width != destWidth || source.height != destHeight)
+        {
+            scaledSource = ResizeTexture(source, destWidth, destHeight);
+        }
+
+        // Copy pixels with bounds checking
+        for (int y = 0; y < destHeight; y++)
+        {
+            for (int x = 0; x < destWidth; x++)
+            {
+                int targetX = destX + x;
+                int targetY = destY + y;
+
+                // Skip if out of bounds
+                if (targetX < 0 || targetX >= frameWidth || targetY < 0 || targetY >= frameHeight)
+                    continue;
+
+                Color sourcePixel = scaledSource.GetPixel(x, y);
+
+                // Alpha blend
+                if (sourcePixel.a > 0.01f)
+                {
+                    Color targetPixel = target.GetPixel(targetX, targetY);
+                    Color blended = Color.Lerp(targetPixel, sourcePixel, sourcePixel.a);
+                    target.SetPixel(targetX, targetY, blended);
+                }
+            }
+        }
+
+        if (scaledSource != source)
+            Destroy(scaledSource);
+    }
+
+    private Texture2D ResizeTexture(Texture2D src, int w, int h)
+    {
+        RenderTexture rt = RenderTexture.GetTemporary(w, h);
+        Graphics.Blit(src, rt);
+        RenderTexture.active = rt;
+
+        Texture2D tex = new Texture2D(w, h, TextureFormat.RGB24, false);
+        tex.ReadPixels(new Rect(0, 0, w, h), 0, 0);
+        tex.Apply();
+
+        RenderTexture.ReleaseTemporary(rt);
+        RenderTexture.active = null;
+        return tex;
+    }
     /// <summary>
     /// Determines if frame is portrait or landscape based on JSON type or dimensions
     /// </summary>
@@ -666,18 +872,15 @@ public class PhotoShootingManager : MonoBehaviour
         if (frameTexture == null)
             return "portrait";
 
-        // Check from JSON if available
-        if (currentFrameItem?.frameData != null)
+        // PRIORITY 1: Check frameData.type from JSON
+        if (currentFrameItem?.frameData != null && !string.IsNullOrEmpty(currentFrameItem.frameData.type))
         {
-            string type = currentFrameItem.frameData.type;
-            if (!string.IsNullOrEmpty(type))
-            {
-                Debug.Log($"📋 Using frame type from JSON: {type}");
-                return type.ToLower();
-            }
+            string type = currentFrameItem.frameData.type.ToLower();
+            Debug.Log($"📋 Frame orientation from JSON type: {type}");
+            return type;
         }
 
-        // Fallback: analyze dimensions
+        // FALLBACK: Analyze dimensions
         float aspectRatio = (float)frameTexture.width / frameTexture.height;
 
         if (aspectRatio > 1.1f)

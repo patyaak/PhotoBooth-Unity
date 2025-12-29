@@ -662,7 +662,7 @@ MonoBehaviour:
   autoPrintAfterCapture: 0
   loadingPanel: {fileID: 1238585431}
   previewDurationSeconds: 2
-  selectedAspect: 1
+  selectedAspect: 0
   capturedPhotos: []
 --- !u!4 &82522101
 Transform:
@@ -5578,7 +5578,7 @@ MonoBehaviour:
   m_charWidthMaxAdj: 0
   m_TextWrappingMode: 1
   m_wordWrappingRatios: 0.4
-  m_overflowMode: 0
+  m_overflowMode: 3
   m_linkedTextComponent: {fileID: 0}
   parentLinkedComponent: {fileID: 0}
   m_enableKerning: 0
@@ -5695,7 +5695,7 @@ MonoBehaviour:
   m_HandleRect: {fileID: 1115247950}
   m_Direction: 2
   m_Value: 0
-  m_Size: 0.92
+  m_Size: 0.82857144
   m_NumberOfSteps: 0
   m_OnValueChanged:
     m_PersistentCalls:
@@ -13495,23 +13495,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 29f60cf34fcad014abe3f8ca57f4da62, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  printerName: EPSON SL-D1050
-  paperWidthInches: 4
-  paperHeightInches: 6
-  dpi: 600
-  printingPanel: {fileID: 1609352119}
-  inProgressPanel: {fileID: 1611030347}
-  printingDonePanel: {fileID: 1834765795}
-  errorPanel: {fileID: 686505202}
-  statusText: {fileID: 0}
-  errorText: {fileID: 529883099}
-  printingDoneDisplaySeconds: 3
   printerDropdown: {fileID: 1261680359}
-  refreshPrintersButton: {fileID: 0}
-  printerStatusText: {fileID: 0}
-  testPrintButton: {fileID: 0}
-  printerRecheckInterval: 2.5
-  availablePrinters: []
+  selectedPrinter: 
 --- !u!1 &1990448606
 GameObject:
   m_ObjectHideFlags: 0
