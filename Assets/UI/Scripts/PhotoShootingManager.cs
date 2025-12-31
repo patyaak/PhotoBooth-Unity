@@ -19,8 +19,7 @@ public class PhotoShootingManager : MonoBehaviour
     public GameObject photoShootPanel;
     public GameObject beautificationPanel;
     public GameObject photoPreviewPanel;
-
-    [Header("Countdown")]
+        [Header("Countdown")]
     public TMP_Text timerText;
     public Image flashPanel;
 
@@ -38,6 +37,9 @@ public class PhotoShootingManager : MonoBehaviour
     [Header("Printing")]
     public Button printButton;
     public bool autoPrintAfterCapture = true;
+    public GameObject printingPanel;
+    public GameObject printingInProgress;
+    public GameObject printingDone;
 
     [Header("UI References")]
     public GameObject loadingPanel;
@@ -468,6 +470,35 @@ public class PhotoShootingManager : MonoBehaviour
                 Debug.Log($"📁 Created debug folder: {debugFolder}");
             }
 
+            // Cleanup old photos if we exceed 4 (so the new one makes it 5)
+            try
+            {
+                var dirInfo = new DirectoryInfo(debugFolder);
+                var files = dirInfo.GetFiles("*.png")
+                    .OrderBy(f => f.CreationTime)
+                    .ToList();
+
+                while (files.Count >= 5)
+                {
+                    var fileToDelete = files[0];
+                    try
+                    {
+                        fileToDelete.Delete();
+                        Debug.Log($"🗑️ Deleted old debug photo: {fileToDelete.Name}");
+                        files.RemoveAt(0);
+                    }
+                    catch (Exception deleteEx)
+                    {
+                        Debug.LogWarning($"⚠️ Could not delete old photo {fileToDelete.Name}: {deleteEx.Message}");
+                        break; // Stop if we can't delete to avoid infinite loop if file is locked
+                    }
+                }
+            }
+            catch (Exception cleanupEx)
+            {
+                Debug.LogWarning($"⚠️ Failed to cleanup old photos: {cleanupEx.Message}");
+            }
+
             // Full path
             string fullPath = Path.Combine(debugFolder, filename);
 
@@ -664,10 +695,24 @@ public class PhotoShootingManager : MonoBehaviour
 
             if (PrintingManager.Instance != null)
             {
+                // Show Printing Panel
+                if (printingPanel != null) printingPanel.SetActive(true);
+                if (printingInProgress != null) printingInProgress.SetActive(true);
+                if (printingDone != null) printingDone.SetActive(false);
+
                 PrintingManager.Instance.PrintFinalImage(finalComposedImageForPrint, frameType);
-                //yield return new WaitUntil(() => PrintingManager.Instance.IsPrintingComplete());
-                yield return new WaitForSeconds(0.5f);
+                
+                // Simulate printing time
+                yield return new WaitForSeconds(3f);
+                
+                // Show Done
+                if (printingInProgress != null) printingInProgress.SetActive(false);
+                if (printingDone != null) printingDone.SetActive(true);
+                
                 Debug.Log("✅ Printing workflow completed!");
+                
+                // Wait for user to see "Done"
+                yield return new WaitForSeconds(4f);
             }
             else
             {
@@ -1010,6 +1055,7 @@ public class PhotoShootingManager : MonoBehaviour
         if (beautificationPanel != null) beautificationPanel.SetActive(false);
         if (photoPreviewPanel != null) photoPreviewPanel.SetActive(false);
         if (loadingPanel != null) loadingPanel.SetActive(false);
+        if (printingPanel != null) printingPanel.SetActive(false);
 
         // Activate login panel through LoginManager
         if (LoginManager.Instance != null)

@@ -13,6 +13,10 @@ public class PrintingManager : MonoBehaviour
     [Header("UI")]
     public TMP_Dropdown printerDropdown;
 
+    [Header("Error Handling")]
+    public GameObject printerErrorPanel;
+    public TMP_Text printerErrorText;
+
     [Header("Printer")]
     public string selectedPrinter;
 
@@ -27,6 +31,7 @@ public class PrintingManager : MonoBehaviour
     private void Start()
     {
         PopulatePrinters();
+        StartCoroutine(CheckPrinterStatusRoutine());
     }
 
     // =========================
@@ -224,4 +229,167 @@ finally {{
 }}
 ";
     }
+
+    // =========================
+    // STATUS MONITORING
+    // =========================
+    System.Collections.IEnumerator CheckPrinterStatusRoutine()
+    {
+        while (true)
+        {
+            if (!string.IsNullOrEmpty(selectedPrinter))
+            {
+                CheckPrinterStatus();
+            }
+            yield return new WaitForSeconds(5f); // Check every 5 seconds
+        }
+    }
+
+    void CheckPrinterStatus()
+    {
+        // We use PowerShell/WMI to get detailed status without an SDK
+        string script = $@"
+$p = Get-WmiObject Win32_Printer -Filter ""Name='{selectedPrinter}'""
+if ($p) {{
+    Write-Output ""STATUS|$($p.PrinterStatus)|$($p.DetectedErrorState)|$($p.WorkOffline)""
+}} else {{
+    Write-Output ""NOTFOUND""
+}}
+";
+        StartCoroutine(RunStatusScript(script));
+    }
+
+    System.Collections.IEnumerator RunStatusScript(string script)
+    {
+        string tempPs = Path.Combine(Application.persistentDataPath, "status_check.ps1");
+        File.WriteAllText(tempPs, script, Encoding.UTF8);
+
+        ProcessStartInfo psi = new ProcessStartInfo()
+        {
+            FileName = "powershell.exe",
+            Arguments = $"-ExecutionPolicy Bypass -NoProfile -File \"{tempPs}\"",
+            CreateNoWindow = true,
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true
+        };
+
+        bool pError = false;
+        string pOutput = "";
+
+        // Run process in a separate thread to avoid freezing Unity main thread
+        bool isDone = false;
+        
+        System.Threading.Thread thread = new System.Threading.Thread(() => {
+            try {
+                using (Process process = Process.Start(psi))
+                {
+                    pOutput = process.StandardOutput.ReadToEnd();
+                    process.WaitForExit();
+                }
+            } catch { pError = true; }
+            isDone = true;
+        });
+        thread.Start();
+
+        while (!isDone) yield return null;
+
+        if (!pError && !string.IsNullOrEmpty(pOutput))
+        {
+            ParseStatus(pOutput.Trim());
+        }
+    }
+
+    void ParseStatus(string output)
+    {
+        if (printerErrorPanel == null) return;
+
+        if (output.Contains("NOTFOUND"))
+        {
+            ShowError("プリンターが見つかりません"); // Printer not found
+            return;
+        }
+
+        if (output.StartsWith("STATUS|"))
+        {
+            string[] parts = output.Split('|');
+            if (parts.Length >= 4)
+            {
+                int status = int.Parse(parts[1]); // 3=Idle, 4=Printing, 2=Error
+                int errorState = int.Parse(parts[2]); 
+                bool offline = bool.Parse(parts[3]);
+
+                // Priority Checks
+                if (offline)
+                {
+                    ShowError("プリンターが接続されていません"); // Not connected / Offline
+                }
+                else if (errorState == 4)
+                {
+                    ShowError("用紙切れです"); // Out of Paper
+                }
+                else if (errorState == 5)
+                {
+                    ShowError("インク不足です"); // Low Toner/Ink
+                }
+                else if (errorState == 12)
+                {
+                    ShowError("カバーが開いています"); // Door Open
+                }
+                else if (errorState == 13)
+                {
+                    ShowError("紙詰まりです"); // Paper Jam
+                }
+                else if (status == 2 || (status != 3 && status != 4)) // 2 is Error, 3 is Idle, 4 is Printing
+                {
+                    // Generic Error if status is Error but no specific ErrorState
+                    if (errorState != 0)
+                        ShowError($"プリンターエラー: {GetErrorStateJP(errorState)}");
+                    else
+                        ShowError("プリンター準備中またはエラー"); // Warning/Error
+                }
+                else
+                {
+                    // ALL GOOD
+                    HideError();
+                }
+            }
+        }
+    }
+
+    string GetErrorStateJP(int code)
+    {
+        switch(code)
+        {
+            case 0: return "正常";
+            case 1: return "その他";
+            case 2: return "不明";
+            case 3: return "アイドル";
+            case 4: return "用紙切れ";
+            case 5: return "トナー不足";
+            case 6: return "印刷中";
+            case 12: return "ドア開放";
+            case 13: return "紙詰まり";
+            case 14: return "オフライン";
+            default: return $"コード {code}";
+        }
+    }
+
+    void ShowError(string msg)
+    {
+        if (printerErrorPanel != null)
+        {
+            printerErrorPanel.SetActive(true);
+            if (printerErrorText != null) printerErrorText.text = msg;
+        }
+    }
+
+    void HideError()
+    {
+        if (printerErrorPanel != null && printerErrorPanel.activeSelf)
+        {
+            printerErrorPanel.SetActive(false);
+        }
+    }
+
 }
