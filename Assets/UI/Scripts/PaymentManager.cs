@@ -187,9 +187,6 @@ public class PaymentManager : MonoBehaviour
         isInGachaFlow = false;
     }
 
-    /// <summary>
-    /// Check if we're in offline mode (no internet + payments/login disabled)
-    /// </summary>
     private bool IsOfflineMode()
     {
         // Check if server is offline

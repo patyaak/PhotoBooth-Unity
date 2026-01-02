@@ -10,6 +10,7 @@ public class VendorLogin : MonoBehaviour
     public TMP_InputField boothIDInput;
     public Button submitButton;
     public GameObject mainAppPanel;
+    public GameObject vendorPanel;
     public GameObject wifiErrorGO;
 
     [Header("Theme References (Image Components)")]
@@ -48,6 +49,8 @@ public class VendorLogin : MonoBehaviour
     {
         submitButton.onClick.AddListener(OnSubmitClicked);
         mainAppPanel.SetActive(false);
+        if (vendorPanel != null) 
+            vendorPanel.SetActive(true);
 
         defaultBackground = backgroundImage.sprite;
         defaultLogo = logoImage.sprite;
@@ -114,6 +117,8 @@ public class VendorLogin : MonoBehaviour
 
         // Activate main app panel
         mainAppPanel.SetActive(true);
+        if (vendorPanel != null)
+            vendorPanel.SetActive(false);
 
         // Load cached booth data
         currentBoothID = PlayerPrefs.GetString("booth_id");
@@ -269,6 +274,8 @@ public class VendorLogin : MonoBehaviour
 
                     // Activate main app panel
                     mainAppPanel.SetActive(true);
+                    if (vendorPanel != null)
+                        vendorPanel.SetActive(false);
 
                     // Fetch frames from server
                     var frameManager = FindAnyObjectByType<PhotoBoothFrameManager>();
@@ -380,6 +387,8 @@ public class VendorLogin : MonoBehaviour
 
         ResetThemeVisuals();
         mainAppPanel.SetActive(false);
+        if (vendorPanel != null)
+            vendorPanel.SetActive(true);
 
         var frameManager = FindAnyObjectByType<PhotoBoothFrameManager>();
         if (frameManager != null)

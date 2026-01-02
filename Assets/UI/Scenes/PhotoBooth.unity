@@ -5698,7 +5698,7 @@ MonoBehaviour:
   m_HandleRect: {fileID: 1115247950}
   m_Direction: 2
   m_Value: 0
-  m_Size: 1
+  m_Size: 0.82857144
   m_NumberOfSteps: 0
   m_OnValueChanged:
     m_PersistentCalls:
@@ -13248,6 +13248,7 @@ MonoBehaviour:
   boothIDInput: {fileID: 1065570459}
   submitButton: {fileID: 298822998}
   mainAppPanel: {fileID: 104689459187019098}
+  vendorPanel: {fileID: 1303720115}
   wifiErrorGO: {fileID: 954533339}
   backgroundImage: {fileID: 3067762243049530660}
   logoImage: {fileID: 2891011255556751740}

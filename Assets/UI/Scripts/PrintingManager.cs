@@ -34,9 +34,6 @@ public class PrintingManager : MonoBehaviour
         StartCoroutine(CheckPrinterStatusRoutine());
     }
 
-    // =========================
-    // PRINTER LIST
-    // =========================
     void PopulatePrinters()
     {
         if (printerDropdown == null) return;
@@ -77,9 +74,7 @@ public class PrintingManager : MonoBehaviour
         UnityEngine.Debug.Log("🖨️ Selected Printer: " + selectedPrinter);
     }
 
-    // =========================
-    // PRINT ENTRY POINT
-    // =========================
+
     public void PrintFinalImage(Texture2D image, string frameType)
     {
         if (image == null)
@@ -102,9 +97,7 @@ public class PrintingManager : MonoBehaviour
         RunPowerShellPrint(imagePath, isLandscape);
     }
 
-    // =========================
-    // POWERSHELL PRINT
-    // =========================
+
     void RunPowerShellPrint(string imagePath, bool landscape)
     {
         UnityEngine.Debug.Log($"PRINT TEST: 🖨️ Printing on {selectedPrinter} (4x6 Mode)");
@@ -230,9 +223,6 @@ finally {{
 ";
     }
 
-    // =========================
-    // STATUS MONITORING
-    // =========================
     System.Collections.IEnumerator CheckPrinterStatusRoutine()
     {
         while (true)
