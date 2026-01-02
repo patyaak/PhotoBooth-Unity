@@ -15,7 +15,7 @@ public class LoggingManager : MonoBehaviour
     public string apiBaseURL = "http://photo-stg-api.chvps3.aozora-okinawa.com/";
     public float syncIntervalHours = 24f;      // Sync every 24 hours
     public int maxLogsBeforeForceSync = 1000;   // Force sync if too many logs
-    public int maxLogsToKeep = 5000;            // Delete oldest logs if exceeded
+    public int maxLogsToKeep = 10240;            // Delete oldest logs if exceeded
     public bool enableDebugLogging = true;      // Show logs in Unity console
 
     [Header("UI References (Optional)")]
@@ -26,12 +26,9 @@ public class LoggingManager : MonoBehaviour
     private Coroutine syncCoroutine;
     private string boothId;
     private string deviceId;
-    private int sessionClickCounts = new Dictionary<string, int>().Count;
     private Dictionary<string, int> clickCounters = new Dictionary<string, int>();
 
-    // ============================================================
-    // INITIALIZATION
-    // ============================================================
+
     private void Awake()
     {
         if (Instance == null)
@@ -64,9 +61,6 @@ public class LoggingManager : MonoBehaviour
         LogSystemEvent("Application Started", LogSeverity.Info);
     }
 
-    // ============================================================
-    // CRASH HANDLING
-    // ============================================================
     private void SetupCrashHandler()
     {
         Application.logMessageReceived += HandleUnityLog;
@@ -116,13 +110,6 @@ public class LoggingManager : MonoBehaviour
         lastUserAction = action;
     }
 
-    // ============================================================
-    // LOGGING METHODS
-    // ============================================================
-
-    /// <summary>
-    /// Log a customer click event
-    /// </summary>
     public void LogCustomerClick(string buttonName, string screenName, string frameId = null, float x = 0, float y = 0)
     {
         string key = $"{screenName}_{buttonName}";
@@ -150,9 +137,6 @@ public class LoggingManager : MonoBehaviour
         SetLastUserAction($"Clicked {buttonName} on {screenName}");
     }
 
-    /// <summary>
-    /// Log a payment event
-    /// </summary>
     public void LogPayment(string orderId, string paymentType, string provider, float amount,
                           string status, string frameId = null, string errorMessage = null, long durationMs = 0)
     {
@@ -179,9 +163,6 @@ public class LoggingManager : MonoBehaviour
         );
     }
 
-    /// <summary>
-    /// Log a crash or exception
-    /// </summary>
     public void LogCrash(string message, CrashLog crashData, LogSeverity severity = LogSeverity.Critical)
     {
         CreateLog(
@@ -196,9 +177,7 @@ public class LoggingManager : MonoBehaviour
             StartCoroutine(SyncLogsToServer());
     }
 
-    /// <summary>
-    /// Log a connection event
-    /// </summary>
+    
     public void LogConnection(string connectionType, string eventType, string endpoint,
                              int responseCode = 0, long latencyMs = 0, bool success = true, string errorMessage = null)
     {
@@ -223,12 +202,35 @@ public class LoggingManager : MonoBehaviour
         );
     }
 
-    /// <summary>
-    /// Log a system event
-    /// </summary>
+
     public void LogSystemEvent(string message, LogSeverity severity = LogSeverity.Info, string details = null)
     {
         CreateLog(LogType.System, severity, message, details);
+    }
+
+    /// <summary>
+    /// Log a printing event
+    /// </summary>
+    public void LogPrinting(string printerName, string status, string paperSize, bool isLandscape, string errorMessage = null)
+    {
+        var printingData = new PrintingLog
+        {
+            printer_name = printerName,
+            status = status,
+            paper_size = paperSize,
+            is_landscape = isLandscape,
+            error_message = errorMessage
+        };
+
+        LogSeverity severity = status == "success" ? LogSeverity.Info : 
+                              status == "failed" ? LogSeverity.Error : LogSeverity.Info;
+
+        CreateLog(
+            LogType.Printing,
+            severity,
+            $"Print {status}: {printerName}",
+            JsonUtility.ToJson(printingData)
+        );
     }
 
     /// <summary>
@@ -263,10 +265,6 @@ public class LoggingManager : MonoBehaviour
             StartCoroutine(SyncLogsToServer());
         }
     }
-
-    // ============================================================
-    // LOCAL STORAGE
-    // ============================================================
     private void LoadLogsFromDisk()
     {
         if (File.Exists(logFilePath))
@@ -310,9 +308,6 @@ public class LoggingManager : MonoBehaviour
         }
     }
 
-    // ============================================================
-    // SERVER SYNC
-    // ============================================================
     private IEnumerator PeriodicSyncRoutine()
     {
         while (true)
@@ -336,62 +331,89 @@ public class LoggingManager : MonoBehaviour
             yield break;
         }
 
-        Debug.Log($"Syncing {unsyncedLogs.Count} logs to server...");
+        Debug.Log($"Preparing to sync {unsyncedLogs.Count} logs...");
 
-        var syncRequest = new LogSyncRequest
+        // Generate CSV
+        string csvContent = GenerateCSV(unsyncedLogs);
+        byte[] csvBytes = Encoding.UTF8.GetBytes(csvContent);
+
+        // Prepare Form
+        WWWForm form = new WWWForm();
+        form.AddField("booth_id", boothId);
+        form.AddField("device_id", deviceId);
+        form.AddField("log_count", unsyncedLogs.Count);
+        // Backend expects 'log_file'
+        form.AddBinaryData("log_file", csvBytes, $"logs_{boothId}_{DateTime.Now:yyyyMMdd_HHmmss}.csv", "text/csv");
+
+        // Backend endpoint: baseurl/api/logs
+        string url = apiBaseURL + "api/logs";
+
+        using (UnityWebRequest request = UnityWebRequest.Post(url, form))
         {
-            booth_id = boothId,
-            device_id = deviceId,
-            log_count = unsyncedLogs.Count,
-            logs = unsyncedLogs
-        };
-
-        string json = JsonUtility.ToJson(syncRequest);
-        string url = apiBaseURL + "api/photobooth/logs/sync";
-
-        using (UnityWebRequest request = new UnityWebRequest(url, "POST"))
-        {
-            byte[] bodyRaw = Encoding.UTF8.GetBytes(json);
-            request.uploadHandler = new UploadHandlerRaw(bodyRaw);
-            request.downloadHandler = new DownloadHandlerBuffer();
-            request.SetRequestHeader("Content-Type", "application/json");
-
             yield return request.SendWebRequest();
 
             if (request.result == UnityWebRequest.Result.Success)
             {
-                try
+                Debug.Log($"✅ Logs uploaded successfully: {request.downloadHandler.text}");
+                
+                // Mark logs as synced (or remove them as requested)
+                // User requirement: "discard the last 24hrs" after sending. 
+                // We will remove the synced logs from the storage.
+                
+                foreach (var log in unsyncedLogs)
                 {
-                    LogSyncResponse response = JsonUtility.FromJson<LogSyncResponse>(request.downloadHandler.text);
-
-                    if (response.success)
-                    {
-                        // Mark logs as synced
-                        foreach (var log in unsyncedLogs)
-                        {
-                            if (!response.failed_log_ids.Contains(log.log_id))
-                                log.synced = true;
-                        }
-
-                        logStorage.total_logs_synced += response.logs_processed;
-                        logStorage.last_sync_time = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ");
-
-                        SaveLogsToDisk();
-
-                        Debug.Log($"✅ Synced {response.logs_processed} logs successfully");
-                    }
+                    logStorage.logs.Remove(log);
                 }
-                catch (Exception ex)
-                {
-                    Debug.LogError($"Failed to parse sync response: {ex.Message}");
-                }
+
+                logStorage.total_logs_synced += unsyncedLogs.Count;
+                logStorage.last_sync_time = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ");
+
+                SaveLogsToDisk();
             }
             else
             {
-                Debug.LogError($"Log sync failed: {request.error}");
+                Debug.LogError($"Log upload failed: {request.error}\nResponse: {request.downloadHandler.text}");
                 LogConnection("http", "api_call_failed", url, (int)request.responseCode, 0, false, request.error);
             }
         }
+    }
+
+    private string GenerateCSV(List<LogEntry> logs)
+    {
+        StringBuilder sb = new StringBuilder();
+        
+        // Header
+        sb.AppendLine("LogID,BoothID,DeviceID,SessionID,UserID,Type,Severity,Timestamp,Message,Details,AppVersion");
+
+        foreach (var log in logs)
+        {
+            sb.Append(EscapeCSV(log.log_id)).Append(",");
+            sb.Append(EscapeCSV(log.booth_id)).Append(",");
+            sb.Append(EscapeCSV(log.device_id)).Append(",");
+            sb.Append(EscapeCSV(log.session_id)).Append(",");
+            sb.Append(EscapeCSV(log.user_id)).Append(",");
+            sb.Append(EscapeCSV(log.log_type.ToString())).Append(",");
+            sb.Append(EscapeCSV(log.severity.ToString())).Append(",");
+            sb.Append(EscapeCSV(log.timestamp)).Append(",");
+            sb.Append(EscapeCSV(log.message)).Append(",");
+            sb.Append(EscapeCSV(log.details)).Append(",");
+            sb.Append(EscapeCSV(log.app_version));
+            sb.AppendLine();
+        }
+
+        return sb.ToString();
+    }
+
+    private string EscapeCSV(string field)
+    {
+        if (string.IsNullOrEmpty(field)) return "";
+        
+        // If field contains comma, quote, or newline, wrap in quotes and double internal quotes
+        if (field.Contains(",") || field.Contains("\"") || field.Contains("\n") || field.Contains("\r"))
+        {
+            return $"\"{field.Replace("\"", "\"\"")}\"";
+        }
+        return field;
     }
 
     /// <summary>
@@ -401,10 +423,6 @@ public class LoggingManager : MonoBehaviour
     {
         StartCoroutine(SyncLogsToServer());
     }
-
-    // ============================================================
-    // LOG VIEWER (For In-App Display)
-    // ============================================================
     public List<LogEntry> GetRecentLogs(int count = 100)
     {
         return logStorage.logs.OrderByDescending(l => l.timestamp).Take(count).ToList();
@@ -436,9 +454,6 @@ public class LoggingManager : MonoBehaviour
         return logStorage.last_sync_time ?? "Never";
     }
 
-    // ============================================================
-    // CLEANUP
-    // ============================================================
     public void ClearSyncedLogs()
     {
         int removed = logStorage.logs.RemoveAll(l => l.synced);

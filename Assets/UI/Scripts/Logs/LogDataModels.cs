@@ -11,7 +11,8 @@ public enum LogType
     Crash,
     Connection,
     System,
-    Error
+    Error,
+    Printing
 }
 
 public enum LogSeverity
@@ -140,4 +141,17 @@ public class LogStorage
     public string last_sync_time;
     public int total_logs_created;
     public int total_logs_synced;
+}
+
+// ============================================================
+// PRINTING LOG
+// ============================================================
+[Serializable]
+public class PrintingLog
+{
+    public string printer_name;
+    public string status;              // "started", "success", "failed"
+    public string paper_size;
+    public bool is_landscape;
+    public string error_message;
 }

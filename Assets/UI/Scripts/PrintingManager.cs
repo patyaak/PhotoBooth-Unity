@@ -94,6 +94,9 @@ public class PrintingManager : MonoBehaviour
         string imagePath = Path.Combine(Application.persistentDataPath, "PHOTO_TO_PRINT.png");
         File.WriteAllBytes(imagePath, image.EncodeToPNG());
 
+        // LOGGING START
+        LoggingManager.Instance?.LogPrinting(selectedPrinter, "started", "4x6", isLandscape);
+
         RunPowerShellPrint(imagePath, isLandscape);
     }
 
@@ -286,7 +289,17 @@ if ($p) {{
 
         if (!pError && !string.IsNullOrEmpty(pOutput))
         {
+            // Check for success message inside normal output if using Write-Host
+            if (pOutput.Contains("PRINT JOB SENT SUCCESSFULLY"))
+            {
+                 LoggingManager.Instance?.LogPrinting(selectedPrinter, "success", "4x6", false); // We don't have isLandscape easily here, default false or refactor
+            }
+
             ParseStatus(pOutput.Trim());
+        }
+        else if (pError) // Process execution error
+        {
+             LoggingManager.Instance?.LogPrinting(selectedPrinter, "failed", "4x6", false, "PowerShell execution failed");
         }
     }
 

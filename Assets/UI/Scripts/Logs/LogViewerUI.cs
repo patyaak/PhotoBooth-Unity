@@ -20,6 +20,7 @@ public class LogViewerUI : MonoBehaviour
     public Button crashLogsButton;
     public Button connectionLogsButton;
     public Button systemLogsButton;
+    public Button printingLogsButton;
 
     [Header("Severity Filter")]
     public Toggle infoToggle;
@@ -68,6 +69,7 @@ public class LogViewerUI : MonoBehaviour
         if (crashLogsButton) crashLogsButton.onClick.AddListener(() => FilterByType(LogType.Crash));
         if (connectionLogsButton) connectionLogsButton.onClick.AddListener(() => FilterByType(LogType.Connection));
         if (systemLogsButton) systemLogsButton.onClick.AddListener(() => FilterByType(LogType.System));
+        if (printingLogsButton) printingLogsButton.onClick.AddListener(() => FilterByType(LogType.Printing));
 
         if (infoToggle) infoToggle.onValueChanged.AddListener(val => ToggleSeverity(LogSeverity.Info, val));
         if (warningToggle) warningToggle.onValueChanged.AddListener(val => ToggleSeverity(LogSeverity.Warning, val));
