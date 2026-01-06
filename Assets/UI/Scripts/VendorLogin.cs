@@ -19,10 +19,12 @@ public class VendorLogin : MonoBehaviour
     public Image qrMobileImage;
     public Image cameraImage;
     public TMP_Text boothPrice;
+    public GameObject priceParent; // Shared parent for both prices
+    public TMP_Text gatchaPrice;
 
     [Header("Hidden Buttons for switching vendor")]
     public Button logoBtn;
-    public Button boothPriceBtn;
+    public Button vendorSwitchingButton;
     private int logoClickCount = 0;
     private float lastClickTime = 0;
     private float resetDelay = 1f;
@@ -123,8 +125,14 @@ public class VendorLogin : MonoBehaviour
         // Load cached booth data
         currentBoothID = PlayerPrefs.GetString("booth_id");
 
+        if (priceParent != null)
+            priceParent.SetActive(false); // Offline mode = no payments
+
         if (boothPrice != null)
             boothPrice.text = PlayerPrefs.GetString("booth_price", "");
+        
+        if (gatchaPrice != null)
+            gatchaPrice.text = PlayerPrefs.GetString("gacha_price", "");
 
         // Force-disable payments in offline mode
         PlayerPrefs.SetInt("payments_enabled", 0);
@@ -242,8 +250,14 @@ public class VendorLogin : MonoBehaviour
                     else
                         Debug.LogWarning("No theme assigned to this booth.");
 
+                    if (priceParent != null)
+                        priceParent.SetActive(booth.payments_enabled);
+
                     if (boothPrice != null)
                         boothPrice.text = booth.price.ToString();
+
+                    if (gatchaPrice != null)
+                        gatchaPrice.text = booth.gacha_price.ToString();
 
                     // Save booth settings to PlayerPrefs
                     PlayerPrefs.SetString("booth_id", booth.booth_id);
@@ -346,8 +360,8 @@ public class VendorLogin : MonoBehaviour
         if (logoBtn != null)
             logoBtn.onClick.AddListener(OnLogoClicked);
 
-        if (boothPriceBtn != null)
-            boothPriceBtn.onClick.AddListener(OnBoothPriceClicked);
+        if (vendorSwitchingButton != null)
+            vendorSwitchingButton.onClick.AddListener(OnVendorSwitchingClicked);
     }
 
     void OnLogoClicked()
@@ -360,6 +374,15 @@ public class VendorLogin : MonoBehaviour
     }
 
     void OnBoothPriceClicked()
+    {
+        if (logoClickCount >= 5)
+        {
+            SwitchVendor();
+            logoClickCount = 0;
+        }
+    }
+
+    void OnVendorSwitchingClicked()
     {
         if (logoClickCount >= 5)
         {
@@ -384,6 +407,7 @@ public class VendorLogin : MonoBehaviour
         var deviceReg = FindAnyObjectByType<DeviceRegistration>();
         boothIDInput.text = deviceReg != null ? deviceReg.GetSavedBoothID() : "";
         boothPrice.text = "";
+        if (gatchaPrice != null) gatchaPrice.text = "";
 
         ResetThemeVisuals();
         mainAppPanel.SetActive(false);

@@ -493,9 +493,10 @@ public class LoginManager : MonoBehaviour
             frameManager.ResetToDefaultCategory();
         }
 
-        if (isGuest && frameManager != null && frameManager.myFrameButton != null)
+        // **NEW: Ensure button visibility based on guest status**
+        if (frameManager != null && frameManager.myFrameButton != null)
         {
-            frameManager.myFrameButton.interactable = false;
+            frameManager.myFrameButton.gameObject.SetActive(!isGuest);
         }
 
         if (panelTimeoutRoutine != null) StopCoroutine(panelTimeoutRoutine);
