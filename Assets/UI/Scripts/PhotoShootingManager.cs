@@ -19,8 +19,13 @@ public class PhotoShootingManager : MonoBehaviour
     public GameObject photoShootPanel;
     public GameObject beautificationPanel;
     public GameObject photoPreviewPanel;
-        [Header("Countdown")]
-    public TMP_Text timerText;
+    
+    [Header("Countdown")]
+    // public TMP_Text timerText; // Replaced
+    public GameObject timerRoot;
+    public GameObject count3;
+    public GameObject count2;
+    public GameObject count1;
     public Image flashPanel;
 
     [Header("Camera & Preview")]
@@ -178,13 +183,25 @@ public class PhotoShootingManager : MonoBehaviour
 
         SetCameraPreviewAspect(aspect);
 
-        timerText.gameObject.SetActive(true);
-        for (int i = 3; i > 0; i--)
-        {
-            timerText.text = i.ToString();
-            yield return new WaitForSeconds(1f);
-        }
-        timerText.gameObject.SetActive(false);
+        // --- NEW TIMER LOGIC ---
+        if (timerRoot != null) timerRoot.SetActive(true);
+        
+        if (count3 != null) count3.SetActive(true);
+        if (count2 != null) count2.SetActive(false);
+        if (count1 != null) count1.SetActive(false);
+        yield return new WaitForSeconds(1f);
+
+        if (count3 != null) count3.SetActive(false);
+        if (count2 != null) count2.SetActive(true);
+        yield return new WaitForSeconds(1f);
+
+        if (count2 != null) count2.SetActive(false);
+        if (count1 != null) count1.SetActive(true);
+        yield return new WaitForSeconds(1f);
+
+        if (count1 != null) count1.SetActive(false);
+        if (timerRoot != null) timerRoot.SetActive(false);
+        // -----------------------
 
         yield return StartCoroutine(FlashEffect());
 
@@ -745,6 +762,7 @@ public class PhotoShootingManager : MonoBehaviour
         // STEP 3: RETURN TO LOGIN SCREEN
         yield return new WaitForSeconds(0.5f);
         ResetToLoginScreen();
+      
     }
 
 
@@ -975,47 +993,31 @@ public class PhotoShootingManager : MonoBehaviour
         float minX = float.MaxValue, minY = float.MaxValue;
         float maxX = float.MinValue, maxY = float.MinValue;
 
-        for (int i = 0; i < 4; i++)
+        foreach (Vector3 corner in corners)
         {
-            Vector3 screenPoint = cam ? cam.WorldToScreenPoint(corners[i]) : corners[i];
+            Vector2 screenPoint = RectTransformUtility.WorldToScreenPoint(cam, corner);
             minX = Mathf.Min(minX, screenPoint.x);
             minY = Mathf.Min(minY, screenPoint.y);
             maxX = Mathf.Max(maxX, screenPoint.x);
             maxY = Mathf.Max(maxY, screenPoint.y);
         }
 
-        int x = Mathf.RoundToInt(minX);
-        int y = Mathf.RoundToInt(minY);
         int width = Mathf.RoundToInt(maxX - minX);
         int height = Mathf.RoundToInt(maxY - minY);
 
-        width = Mathf.Clamp(width, 1, Screen.width);
-        height = Mathf.Clamp(height, 1, Screen.height);
-        x = Mathf.Clamp(x, 0, Screen.width - width);
-        y = Mathf.Clamp(y, 0, Screen.height - height);
-
-        Debug.Log($"📸 Capturing capturedImages: {width}x{height}px at screen position ({x},{y})");
-
-        Texture2D tex = new Texture2D(width, height, TextureFormat.RGB24, false);
-
-        try
+        if (width <= 0 || height <= 0)
         {
-            tex.ReadPixels(new Rect(x, y, width, height), 0, 0);
-            tex.Apply();
-            Debug.Log($"✅ Successfully captured frame content: {width}x{height}");
-            return tex;
-        }
-        catch (System.Exception e)
-        {
-            Debug.LogError($"❌ Capture failed: {e.Message}");
-            Destroy(tex);
+            Debug.LogError($"❌ Invalid capture dimensions: {width}x{height}");
             return null;
         }
+
+        Texture2D tex = new Texture2D(width, height, TextureFormat.RGB24, false);
+        tex.ReadPixels(new Rect(minX, minY, width, height), 0, 0);
+        tex.Apply();
+
+        return tex;
     }
 
-    /// <summary>
-    /// Resets the entire system to login screen for next customer
-    /// </summary>
     private void ResetToLoginScreen()
     {
         Debug.Log("🔄 Resetting to login screen for next customer...");
