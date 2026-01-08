@@ -39,6 +39,10 @@ public class PhotoShootingManager : MonoBehaviour
     [Header("Preview Display")]
     public Image finalPhotoPreview;
 
+    [Header("Webcam Selection")]
+    public TMP_Dropdown webcamDropdown;
+    private string currentWebcamName;
+
     [Header("Printing")]
     public Button printButton;
     public bool autoPrintAfterCapture = true;
@@ -76,7 +80,48 @@ public class PhotoShootingManager : MonoBehaviour
         if (photoPreviewPanel != null)
             photoPreviewPanel.SetActive(false);
 
+        InitializeWebcamDropdown();
+
         Debug.Log($"🖨️ Auto-print is: {(autoPrintAfterCapture ? "ENABLED ✅" : "DISABLED ⏸️")}");
+    }
+
+    private void InitializeWebcamDropdown()
+    {
+        if (webcamDropdown == null) return;
+
+        webcamDropdown.ClearOptions();
+        WebCamDevice[] devices = WebCamTexture.devices;
+        List<string> options = new List<string>();
+
+        if (devices.Length == 0)
+        {
+            options.Add("No Camera Found");
+            webcamDropdown.AddOptions(options);
+            return;
+        }
+
+        for (int i = 0; i < devices.Length; i++)
+        {
+            options.Add(devices[i].name);
+        }
+
+        webcamDropdown.AddOptions(options);
+
+        // Default to first camera or previously saved preference if you wanted to implement persistence
+        webcamDropdown.value = 0;
+        currentWebcamName = devices[0].name;
+
+        webcamDropdown.onValueChanged.AddListener(OnWebcamChanged);
+    }
+
+    public void OnWebcamChanged(int index)
+    {
+        WebCamDevice[] devices = WebCamTexture.devices;
+        if (devices.Length > index && index >= 0)
+        {
+            currentWebcamName = devices[index].name;
+            Debug.Log($"📷 Selected Webcam: {currentWebcamName}");
+        }
     }
 
     private void Awake()
@@ -148,7 +193,14 @@ public class PhotoShootingManager : MonoBehaviour
     {
         if (WebCamTexture.devices.Length == 0) return;
 
-        webCamTexture = new WebCamTexture();
+        if (!string.IsNullOrEmpty(currentWebcamName))
+        {
+            webCamTexture = new WebCamTexture(currentWebcamName);
+        }
+        else
+        {
+            webCamTexture = new WebCamTexture();
+        }
         webCamTexture.Play();
 
         cameraPreview.texture = webCamTexture;
