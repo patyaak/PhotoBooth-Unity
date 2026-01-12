@@ -645,6 +645,21 @@ public class PhotoBoothFrameManager : MonoBehaviour
         GameObject instance = Instantiate(startShootingPrefab, startShootingParent);
         instance.SetActive(true);
 
+        // Resize based on scene
+        RectTransform rt = instance.GetComponent<RectTransform>();
+        if (rt != null)
+        {
+            string sceneName = UnityEngine.SceneManagement.SceneManager.GetActiveScene().name;
+            if (sceneName.Equals("Portrait", System.StringComparison.OrdinalIgnoreCase))
+            {
+                rt.sizeDelta = new Vector2(1080, 1920);
+            }
+            else
+            {
+                rt.sizeDelta = new Vector2(1920, 1080);
+            }
+        }
+
         Image img = instance.GetComponentInChildren<Image>();
         if (img != null && selectedItem.frameImg != null)
         {
