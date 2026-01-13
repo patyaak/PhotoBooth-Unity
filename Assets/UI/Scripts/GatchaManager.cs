@@ -284,7 +284,7 @@ public class GatchaManager : MonoBehaviour
         }
 
         bool useCache = Application.internetReachability == NetworkReachability.NotReachable;
-        string url = $"{API.BaseURL}api/photobooth/booths/{boothID}/gacha-frame";
+        string url = $"{API.BaseURL}/api/photobooth/booths/{boothID}/gacha-frame";
 
         if (!useCache)
         {

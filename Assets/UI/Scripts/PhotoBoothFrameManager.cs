@@ -412,9 +412,6 @@ public class PhotoBoothFrameManager : MonoBehaviour
         StartCoroutine(DownloadThumbnailsAndAssetsParallel(currentFrameItems));
     }
 
-    /// <summary>
-    /// Shows or hides next/prev buttons based on number of frames
-    /// </summary>
     private void UpdateScrollButtons(int frameCount)
     {
         bool shouldShowScrollButtons = frameCount > minFramesForScroll;
@@ -660,11 +657,33 @@ public class PhotoBoothFrameManager : MonoBehaviour
             }
         }
 
-        Image img = instance.GetComponentInChildren<Image>();
-        if (img != null && selectedItem.frameImg != null)
+        // Find the "Frame" child
+        Transform frameTransform = instance.transform.Find("Frame");
+        if (frameTransform != null)
         {
-            img.sprite = selectedItem.frameImg.sprite;
-            Debug.Log("✅ Frame thumbnail set");
+            // Create a new GameObject for the image
+            GameObject frameImageObj = new GameObject("FrameImage");
+            frameImageObj.transform.SetParent(frameTransform, false);
+
+            // Add Image component
+            Image img = frameImageObj.AddComponent<Image>();
+            if (selectedItem.frameImg != null)
+            {
+                img.sprite = selectedItem.frameImg.sprite;
+                img.preserveAspect = true; // ✅ Set Preserve Aspect to true
+                Debug.Log("✅ Frame instantiated inside 'Frame' with PreserveAspect=true");
+            }
+
+            // Set RectTransform to stretch to fill the Frame container
+            RectTransform imgRect = frameImageObj.GetComponent<RectTransform>();
+            imgRect.anchorMin = Vector2.zero;
+            imgRect.anchorMax = Vector2.one;
+            imgRect.offsetMin = Vector2.zero;
+            imgRect.offsetMax = Vector2.zero;
+        }
+        else
+        {
+            Debug.LogError("❌ 'Frame' child not found in startShootingPrefab!");
         }
         
         Button startButton = instance.GetComponentInChildren<Button>();

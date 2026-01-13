@@ -618,6 +618,32 @@ public class PhotoShootingManager : MonoBehaviour
         frameObj.SetActive(true);
         instantiatedFrameObject = frameObj;
 
+        // --- NEW LOGIC: Resizing Bg based on Scene ---
+        string currentSceneName = UnityEngine.SceneManagement.SceneManager.GetActiveScene().name;
+        bool isPortraitScene = currentSceneName.IndexOf("Portrait", System.StringComparison.OrdinalIgnoreCase) >= 0;
+        bool isLandscapeScene = currentSceneName.IndexOf("Landscape", System.StringComparison.OrdinalIgnoreCase) >= 0;
+
+        Transform bgTransform = frameObj.transform.Find("Bg");
+        if (bgTransform != null)
+        {
+            RectTransform bgRect = bgTransform.GetComponent<RectTransform>();
+            if (bgRect != null)
+            {
+                if (isPortraitScene)
+                {
+                    bgRect.sizeDelta = new Vector2(1080, 1920);
+                    Debug.Log("✅ [PSM] Set Bg size to 1080x1920 (Portrait)");
+                }
+                else if (isLandscapeScene)
+                {
+                    bgRect.sizeDelta = new Vector2(1920, 1080);
+                    Debug.Log("✅ [PSM] Set Bg size to 1920x1080 (Landscape)");
+                }
+            }
+        }
+        // ---------------------------------------------
+
+
         // Load frame texture
         Texture2D frameTex = null;
         string frameURL = PhotoBoothFrameManager.Instance.ResolveUrl(currentFrameItem.frameData.asset_path);
@@ -647,6 +673,18 @@ public class PhotoShootingManager : MonoBehaviour
             frt.anchoredPosition = Vector2.zero;
             frt.sizeDelta = new Vector2(frameTex.width, frameTex.height);
         }
+
+        // --- NEW LOGIC: Scaling frame container for Landscape Frame in Portrait Scene ---
+        if (isPortraitScene && string.Equals(currentFrameItem.frameData.type, "landscape", System.StringComparison.OrdinalIgnoreCase))
+        {
+             frameContainer.localScale = new Vector3(0.5f, 0.5f, 1f);
+             Debug.Log("✅ [PSM] Scaled 'frame' container to 0.5 (Portrait Scene + Landscape Frame)");
+        }
+        else
+        {
+             frameContainer.localScale = Vector3.one; // Ensure reset if reused
+        }
+        // -------------------------------------------------------------------------------
 
         Transform capturedImagesParent = frameContainer.Find("capturedImages");
         if (capturedImagesParent == null)

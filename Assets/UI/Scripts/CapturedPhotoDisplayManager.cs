@@ -111,7 +111,82 @@ public class CapturedPhotosDisplayManager : MonoBehaviour
             GameObject frameObj = Instantiate(frameDisplayPrefab, frameDisplayParent);
             frameObj.SetActive(true);
 
-            Transform frameImgChild = frameObj.transform.Find("frameImg");
+            // --- NEW LOGIC START ---
+            string currentSceneName = UnityEngine.SceneManagement.SceneManager.GetActiveScene().name;
+            string targetLandscapeName = "Landscape";
+            string targetPortraitName = "Portrait";
+            
+            SceneManagement sceneMgr = FindObjectOfType<SceneManagement>();
+            if (sceneMgr != null)
+            {
+                targetLandscapeName = sceneMgr.landscapeSceneName;
+                targetPortraitName = sceneMgr.portraitSceneName;
+            }
+
+            // Determine orientation based on scene name (Approximate match if exact fails)
+            bool isPortraitScene = currentSceneName.Equals(targetPortraitName, System.StringComparison.OrdinalIgnoreCase) 
+                                   || currentSceneName.Contains("Portrait");
+            bool isLandscapeScene = currentSceneName.Equals(targetLandscapeName, System.StringComparison.OrdinalIgnoreCase) 
+                                    || currentSceneName.Contains("Landscape");
+
+            Transform bgTransform = frameObj.transform.Find("Bg");
+            if (bgTransform != null)
+            {
+                RectTransform bgRect = bgTransform.GetComponent<RectTransform>();
+                if (bgRect != null)
+                {
+                    if (isLandscapeScene)
+                    {
+                        bgRect.sizeDelta = new Vector2(1920, 1080);
+                    }
+                    else if (isPortraitScene)
+                    {
+                        bgRect.sizeDelta = new Vector2(1080, 1920);
+                    }
+                }
+            }
+
+            // Check for portrait scene and landscape frame type scaling
+            if (isPortraitScene)
+            {
+                var selectedFrame = PhotoBoothFrameManager.Instance.currentSelectedFrame;
+                if (selectedFrame != null && selectedFrame.frameData != null)
+                {
+                    if (string.Equals(selectedFrame.frameData.type, "landscape", System.StringComparison.OrdinalIgnoreCase))
+                    {
+                        // Scale the "frame" container instead of the whole root, so Bg isn't affected
+                        Transform contentFrame = frameObj.transform.Find("frame");
+                        if (contentFrame != null)
+                        {
+                            contentFrame.localScale = new Vector3(0.5f, 0.5f, 1f);
+                        }
+                        else
+                        {
+                            // Fallback if "frame" container is missing, though we expect it from hierarchy
+                           frameObj.transform.localScale = new Vector3(0.5f, 0.5f, 1f);
+                        }
+                    }
+                }
+            }
+            // --- NEW LOGIC END ---
+
+            Transform frameImgChild = frameObj.transform.Find("frame/frameImg");
+            if (frameImgChild == null)
+            {
+                // Fallback: try finding just "frameImg" in case hierarchy varies
+                 Transform frameContainer = frameObj.transform.Find("frame");
+                 if (frameContainer != null)
+                 {
+                     frameImgChild = frameContainer.Find("frameImg");
+                 }
+            }
+
+            if (frameImgChild == null)
+            {
+                 // Last resort
+                 frameImgChild = frameObj.transform.Find("frameImg");
+            }
+
             if (frameImgChild == null)
             {
                 Debug.LogError("❌ 'FrameImg' child not found in frameDisplayPrefab!");

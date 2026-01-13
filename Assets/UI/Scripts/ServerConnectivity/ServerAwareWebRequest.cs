@@ -38,10 +38,6 @@ public static class ServerAwareWebRequest
             callback?.Invoke(request);
         }
     }
-
-    /// <summary>
-    /// Make a GET request with automatic server connectivity handling
-    /// </summary>
     public static IEnumerator Get(string url, Action<UnityWebRequest> callback)
     {
         using (UnityWebRequest request = UnityWebRequest.Get(url))
