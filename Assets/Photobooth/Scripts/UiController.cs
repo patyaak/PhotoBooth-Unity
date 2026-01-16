@@ -132,6 +132,10 @@ public class UiController : MonoBehaviour
             retakeButton.gameObject.SetActive(true);
 
         StaticFaceDetection.Instance.inputImage = currentEditingImage;
+        
+        // Disable auto-resize in StaticFaceDetection so it doesn't override our layout
+        StaticFaceDetection.Instance.autoResizeScreen = false;
+        
         StartCoroutine(StaticFaceDetection.Instance.OnDetectImage());
 
         ApplySettingsToFaceController();
@@ -179,6 +183,8 @@ public class UiController : MonoBehaviour
     private IEnumerator ProcessAndSaveSingleImage()
     {
         StaticFaceDetection.Instance.inputImage = currentEditingImage;
+        // Ensure auto-resize is disabled here too
+        StaticFaceDetection.Instance.autoResizeScreen = false;
         yield return StartCoroutine(StaticFaceDetection.Instance.OnDetectImage());
 
         faceController.BrightenStrength = currentBrightness;

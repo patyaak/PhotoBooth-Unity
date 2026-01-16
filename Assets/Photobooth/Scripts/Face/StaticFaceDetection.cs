@@ -68,6 +68,9 @@ namespace Mediapipe.Unity.Tutorial
             Instance = this;
         }
 
+        [Header("Layout Settings")]
+        [SerializeField] public bool autoResizeScreen = true;
+
         public IEnumerator OnDetectImage()
         {
             if (inputImage == null)
@@ -84,7 +87,11 @@ namespace Mediapipe.Unity.Tutorial
 
             // Display input image
             screen.texture = inputImage;
-            screen.rectTransform.sizeDelta = new Vector2(inputImage.width, inputImage.height);
+            
+            if (autoResizeScreen)
+            {
+                screen.rectTransform.sizeDelta = new Vector2(inputImage.width, inputImage.height);
+            }
 
             // Create face landmarker options
             var options = new FaceLandmarkerOptions(
