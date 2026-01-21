@@ -181,15 +181,16 @@ $pd.add_PrintPage({{
     
     $e.Graphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
 
-    # Full page bounds (Physical size, in 1/100 inch usually)
-    $bounds = $e.PageBounds
+    # Printable area bounds (accounts for hardware margins)
+    $g = $e.Graphics
+    $bounds = $g.VisibleClipBounds
 
     # Image Dimensions
     $imgW = $image.Width
     $imgH = $image.Height
 
     # === SHRINK TO FIT LOGIC (Uniform Scale) ===
-    # Calculate scale factor to fit ENTIRE image into page without cropping
+    # Calculate scale factor to fit ENTIRE image into printable area
     $scaleX = $bounds.Width / $imgW
     $scaleY = $bounds.Height / $imgH
     
@@ -200,9 +201,10 @@ $pd.add_PrintPage({{
     $targetW = [Math]::Floor($imgW * $scale)
     $targetH = [Math]::Floor($imgH * $scale)
 
-    # Center Position
-    $posX = [Math]::Floor(($bounds.Width - $targetW) / 2)
-    $posY = [Math]::Floor(($bounds.Height - $targetH) / 2)
+    # Center Position relative to the printable area
+    # Note: VisibleClipBounds.X/Y are the offsets from the physical edge
+    $posX = [Math]::Floor($bounds.Left + ($bounds.Width - $targetW) / 2)
+    $posY = [Math]::Floor($bounds.Top + ($bounds.Height - $targetH) / 2)
 
     Write-Host ""PRINT TEST: PRINTING: Image($imgW x $imgH) -> Page($($bounds.Width) x $($bounds.Height))""
     Write-Host ""PRINT TEST: SCALING: Scale=$scale TargetSize=($targetW x $targetH) Position=($posX, $posY)""

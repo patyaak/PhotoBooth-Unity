@@ -650,6 +650,21 @@ public class PhotoBoothFrameManager : MonoBehaviour
             if (sceneName.Equals("Portrait", System.StringComparison.OrdinalIgnoreCase))
             {
                 rt.sizeDelta = new Vector2(1080, 1920);
+
+                // Resize Background and darkpanel to 2000x2000 for Portrait
+                Transform bg = instance.transform.Find("Background");
+                if (bg != null)
+                {
+                    RectTransform bgRect = bg.GetComponent<RectTransform>();
+                    if (bgRect != null) bgRect.sizeDelta = new Vector2(2000, 3000);
+                }
+
+                Transform dp = instance.transform.Find("darkpanel");
+                if (dp != null)
+                {
+                    RectTransform dpRect = dp.GetComponent<RectTransform>();
+                    if (dpRect != null) dpRect.sizeDelta = new Vector2(2000, 3000);
+                }
             }
             else
             {
