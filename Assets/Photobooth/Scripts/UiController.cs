@@ -58,16 +58,18 @@ public class UiController : MonoBehaviour
 
     private void OnRetakeClicked()
     {
-        PhotoShootingManager.Instance?.OnReshotClicked();
+        // 1. Hide the panel immediately so user sees feedback
+        if (PhotoShootingManager.Instance.beautificationPanel != null)
+            PhotoShootingManager.Instance.beautificationPanel.SetActive(false);
 
-        // Remove the last edited image correctly
+        // 2. Remove the last edited image logic
         if (currentEditingIndex >= 0 && currentEditingIndex < beautifiedImages.Count)
         {
             beautifiedImages.RemoveAt(currentEditingIndex);
         }
 
-        if (PhotoShootingManager.Instance.beautificationPanel != null)
-            PhotoShootingManager.Instance.beautificationPanel.SetActive(false);
+        // 3. Trigger reshot logic (restarts camera/countdown)
+        PhotoShootingManager.Instance?.OnReshotClicked();
     }
 
     private void OnDestroy()
@@ -117,10 +119,10 @@ public class UiController : MonoBehaviour
             screen.uvRect = new Rect(0f, (1f - scale) / 2f, 1f, scale);
         }
 
-        // Load current effect values
-        currentBrightness = faceController.BrightenStrength;
-        currentSmoothness = faceController.SmoothingStrength;
-        currentEnlarge = faceController.eyeEnlargementStrength;
+        // Reset effect values for fresh start (User Request)
+        currentBrightness = 0f;
+        currentSmoothness = 0f;
+        currentEnlarge = 0f;
 
         blockCallbacks = true;
         brightnessSlider.value = currentBrightness;

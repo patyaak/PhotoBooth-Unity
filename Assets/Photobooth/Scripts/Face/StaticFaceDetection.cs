@@ -118,15 +118,75 @@ namespace Mediapipe.Unity.Tutorial
             }
 
             // Process the input image
-            using var textureFrame = new Experimental.TextureFrame(inputImage.width, inputImage.height, TextureFormat.RGBA32);
-            textureFrame.ReadTextureOnCPU(inputImage, flipHorizontally: false, flipVertically: true);
+            int width = inputImage.width;
+            int height = inputImage.height;
+            Texture2D textureForDetection = inputImage;
+            bool isDownscaled = false;
+
+            Debug.Log($"🔍 Face Detection Start: Input Image {width}x{height}");
+
+            // Downscale if image is too large (e.g., > 2048px) to prevent timeouts
+            if (width > 2048 || height > 2048)
+            {
+                float aspectRatio = (float)width / height;
+                int targetWidth, targetHeight;
+
+                if (width > height)
+                {
+                    targetWidth = 2048;
+                    targetHeight = Mathf.RoundToInt(2048 / aspectRatio);
+                }
+                else
+                {
+                    targetHeight = 2048;
+                    targetWidth = Mathf.RoundToInt(2048 * aspectRatio);
+                }
+
+                Debug.Log($"📉 Downscaling for detection: {width}x{height} -> {targetWidth}x{targetHeight}");
+                
+                try 
+                {
+                    // Create a temporary readable texture with explicit format
+                    RenderTexture rt = RenderTexture.GetTemporary(targetWidth, targetHeight, 0, RenderTextureFormat.ARGB32);
+                    RenderTexture oldRT = RenderTexture.active;
+                    RenderTexture.active = rt;
+                    
+                    // Clear the RT to ensure no garbage
+                    GL.Clear(true, true, UnityEngine.Color.clear);
+                    
+                    Graphics.Blit(inputImage, rt);
+                    
+                    textureForDetection = new Texture2D(targetWidth, targetHeight, TextureFormat.RGBA32, false);
+                    textureForDetection.ReadPixels(new UnityEngine.Rect(0, 0, targetWidth, targetHeight), 0, 0);
+                    textureForDetection.Apply();
+                    
+                    RenderTexture.active = oldRT;
+                    RenderTexture.ReleaseTemporary(rt);
+                    
+                    width = targetWidth;
+                    height = targetHeight;
+                    isDownscaled = true;
+                    Debug.Log($"✅ Downscale successful");
+                }
+                catch (System.Exception ex)
+                {
+                    Debug.LogError($"❌ Downscale failed: {ex.Message}. Using original image.");
+                    textureForDetection = inputImage;
+                    width = inputImage.width;
+                    height = inputImage.height;
+                    isDownscaled = false;
+                }
+            }
+
+            using var textureFrame = new Experimental.TextureFrame(width, height, TextureFormat.RGBA32);
+            textureFrame.ReadTextureOnCPU(textureForDetection, flipHorizontally: false, flipVertically: true);
             using var image = textureFrame.BuildCPUImage();
 
             // Detect faces
             var result = faceLandmarker.Detect(image);
 
             int faceCount = result.faceLandmarks?.Count ?? 0;
-            Debug.Log($"✅ Detected {faceCount} face(s)");
+            Debug.Log($"✅ Face Detection Result: Found {faceCount} face(s)");
 
             if (faceCount > 0)
             {
@@ -169,7 +229,7 @@ namespace Mediapipe.Unity.Tutorial
                         faceEffectsController.SetSegmentationMask(faceSegmentationProvider.SegmentationMask);
                     }
 
-                    Debug.Log($"✅ All face effects (eye enlargement + brightening + smoothing) updated for {faceCount} face(s)");
+                    Debug.Log($"✅ Updated FaceEffectsController for {faceCount} face(s)");
                 }
                 else
                 {
@@ -340,6 +400,11 @@ namespace Mediapipe.Unity.Tutorial
 
             stopwatch.Stop();
             Debug.Log($"⏱️ Detection completed in {stopwatch.ElapsedMilliseconds}ms");
+
+            if (isDownscaled && textureForDetection != null)
+            {
+                Destroy(textureForDetection);
+            }
 
             yield return null;
         }

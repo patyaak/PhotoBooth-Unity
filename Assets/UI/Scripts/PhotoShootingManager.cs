@@ -182,8 +182,16 @@ public class PhotoShootingManager : MonoBehaviour
         currentShotIndex = 0;
         photoShootPanel.SetActive(true);
 
-        reshotButton.onClick.RemoveAllListeners();
-        reshotButton.onClick.AddListener(OnReshotClicked);
+        // Clear previous session's beautified images for a fresh start (Fix for 2nd customer issue)
+        if (UiController.Instance != null)
+        {
+            UiController.Instance.beautifiedImages.Clear();
+        }
+
+        // REMOVED: reshotButton.onClick.RemoveAllListeners(); 
+        // REMOVED: reshotButton.onClick.AddListener(OnReshotClicked);
+        // REASON: UiController already registered a listener in Awake() that handles UI logic 
+        // and then calls OnReshotClicked. Overwriting it here broke the UI logic.
 
         StartWebcam();
         StartCoroutine(StartCountdownAndCapture());
@@ -298,6 +306,7 @@ public class PhotoShootingManager : MonoBehaviour
         capturePreview.sprite = Sprite.Create(cropped, new Rect(0, 0, cropped.width, cropped.height), Vector2.one * 0.5f);
         capturePreview.preserveAspect = false;
         capturePreview.gameObject.SetActive(true);
+        if (reshotButton != null) reshotButton.gameObject.SetActive(true); // Ensure reshot button is active
         cameraPreview.gameObject.SetActive(false);
 
         MatchPreviewSizes();
@@ -367,6 +376,8 @@ public class PhotoShootingManager : MonoBehaviour
 
     public void OnReshotClicked()
     {
+        // Safety: Ensure panel is deactivated
+        if (beautificationPanel != null) beautificationPanel.SetActive(false);
         if (capturedPhotos.Count > 0)
             capturedPhotos.RemoveAt(capturedPhotos.Count - 1);
 
