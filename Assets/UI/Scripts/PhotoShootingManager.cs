@@ -52,12 +52,18 @@ public class PhotoShootingManager : MonoBehaviour
 
     [Header("UI References")]
     public GameObject loadingPanel;
+    public TMP_Text remainingShotCount;
+    private int totalAllowedShots;
 
     [Header("Preview Settings")]
     public float previewDurationSeconds = 2f;
 
     public enum AspectRatio { Ratio16x9, Ratio1x1, Ratio4x5 }
     public AspectRatio selectedAspect = AspectRatio.Ratio1x1;
+
+    [Header("Retake Logic")]
+    private int currentRetakeCount = 0;
+    public int maxRetakes = 2; // Default 2 retakes per shot
 
     private WebCamTexture webCamTexture;
     private FrameItem currentFrameItem;
@@ -72,6 +78,19 @@ public class PhotoShootingManager : MonoBehaviour
     private Texture2D finalComposedImageForPrint;
     private GameObject instantiatedFrameObject;
 
+
+    private void UpdateRemainingShots(bool isBeautificationActive)
+    {
+        if (remainingShotCount != null)
+        {
+            int shotsTaken = currentShotIndex;
+            int remaining = totalAllowedShots - shotsTaken;
+            if (isBeautificationActive) remaining--;
+            
+            remaining = Mathf.Max(0, remaining);
+            remainingShotCount.text = remaining.ToString();
+        }
+    }
 
     private void Start()
     {
@@ -153,9 +172,12 @@ public class PhotoShootingManager : MonoBehaviour
         if (selectedFrame == null) return;
 
         currentFrameItem = selectedFrame;
+        totalAllowedShots = selectedFrame.frameData.number_of_shots;
         placeholders.Clear();
         photoByIndex.Clear();
         uniqueIndices.Clear();
+        
+        currentRetakeCount = 0; // Reset for first shot
 
         foreach (var asset in selectedFrame.frameData.assets)
         {
@@ -187,11 +209,6 @@ public class PhotoShootingManager : MonoBehaviour
         {
             UiController.Instance.beautifiedImages.Clear();
         }
-
-        // REMOVED: reshotButton.onClick.RemoveAllListeners(); 
-        // REMOVED: reshotButton.onClick.AddListener(OnReshotClicked);
-        // REASON: UiController already registered a listener in Awake() that handles UI logic 
-        // and then calls OnReshotClicked. Overwriting it here broke the UI logic.
 
         StartWebcam();
         StartCoroutine(StartCountdownAndCapture());
@@ -228,6 +245,7 @@ public class PhotoShootingManager : MonoBehaviour
     {
         capturePreview.gameObject.SetActive(false);
         cameraPreview.gameObject.SetActive(true);
+        UpdateRemainingShots(false); // Update counter for camera mode
 
         int currentIndex = uniqueIndices[currentShotIndex];
         var repPlaceholder = placeholders.FirstOrDefault(p => p.placeholder_index == currentIndex);
@@ -312,7 +330,8 @@ public class PhotoShootingManager : MonoBehaviour
         MatchPreviewSizes();
 
         photoByIndex[placeholderIndex] = cropped;
-
+        
+        UpdateRemainingShots(true); // Decrement counter for beautification mode
         OpenBeautificationForImage(cropped, placeholderIndex, targetWidth, targetHeight);
     }
 
@@ -332,7 +351,9 @@ public class PhotoShootingManager : MonoBehaviour
             photoByIndex[currentIndex] = UiController.Instance.beautifiedImages[currentShotIndex];
         }
 
+        
         currentShotIndex++;
+        currentRetakeCount = 0; // Reset for next shot
 
         if (currentShotIndex < uniqueIndices.Count)
         {
@@ -376,6 +397,10 @@ public class PhotoShootingManager : MonoBehaviour
 
     public void OnReshotClicked()
     {
+        // Increment retake count
+        currentRetakeCount++;
+        Debug.Log($"🔄 Retake clicked. Count: {currentRetakeCount}/{maxRetakes}");
+
         // Safety: Ensure panel is deactivated
         if (beautificationPanel != null) beautificationPanel.SetActive(false);
         if (capturedPhotos.Count > 0)
@@ -386,6 +411,11 @@ public class PhotoShootingManager : MonoBehaviour
         cameraPreview.gameObject.SetActive(true);
 
         StartCoroutine(StartCountdownAndCapture());
+    }
+
+    public bool CanRetake()
+    {
+        return currentRetakeCount < maxRetakes;
     }
 
     private void SetCameraPreviewAspect(float targetAspect)

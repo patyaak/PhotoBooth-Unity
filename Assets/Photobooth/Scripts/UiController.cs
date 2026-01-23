@@ -131,7 +131,12 @@ public class UiController : MonoBehaviour
         blockCallbacks = false;
 
         if (retakeButton != null)
-            retakeButton.gameObject.SetActive(true);
+        {
+            // Only show Retake if allowed
+            bool canRetake = PhotoShootingManager.Instance.CanRetake();
+            retakeButton.gameObject.SetActive(canRetake);
+            Debug.Log($"Displaying Retake Button: {canRetake}");
+        }
 
         StaticFaceDetection.Instance.inputImage = currentEditingImage;
         
