@@ -642,13 +642,12 @@ public class PhotoShootingManager : MonoBehaviour
             {
                 if (isPortraitScene)
                 {
-                    bgRect.sizeDelta = new Vector2(1080, 1920);
-                    Debug.Log("✅ [PSM] Set Bg size to 1080x1920 (Portrait)");
+                    bgRect.sizeDelta = new Vector2(2000, 2000);
+                  
                 }
                 else if (isLandscapeScene)
                 {
                     bgRect.sizeDelta = new Vector2(1920, 1080);
-                    Debug.Log("✅ [PSM] Set Bg size to 1920x1080 (Landscape)");
                 }
             }
         }
