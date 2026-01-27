@@ -31,6 +31,9 @@ public class UiController : MonoBehaviour
 
     private int currentEditingIndex = -1;
 
+    // Filter Selection
+    private FilterType currentFilter = FilterType.None;
+
     // Store placeholder dimensions for accurate preview
     private float placeholderWidth;
     private float placeholderHeight;
@@ -128,6 +131,10 @@ public class UiController : MonoBehaviour
         brightnessSlider.value = currentBrightness;
         smoothenSlider.value = currentSmoothness;
         eyeEnlargementSlider.value = currentEnlarge;
+        
+        // Reset Filter
+        currentFilter = FilterType.None;
+        
         blockCallbacks = false;
 
         if (retakeButton != null)
@@ -177,6 +184,16 @@ public class UiController : MonoBehaviour
         faceController.BrightenStrength = currentBrightness;
         faceController.SmoothingStrength = currentSmoothness;
         faceController.UpdateEyeEnlargementStrength(currentEnlarge);
+        faceController.CurrentFilter = currentFilter;
+    }
+
+    public void OnFilterSelected(int filterTypeInt)
+    {
+        if (blockCallbacks) return;
+        
+        currentFilter = (FilterType)filterTypeInt;
+        ApplySettingsToFaceController();
+        Debug.Log($"🎨 Filter selected: {currentFilter}");
     }
 
     private void OnDone()
@@ -197,6 +214,7 @@ public class UiController : MonoBehaviour
         faceController.BrightenStrength = currentBrightness;
         faceController.SmoothingStrength = currentSmoothness;
         faceController.UpdateEyeEnlargementStrength(currentEnlarge);
+        faceController.CurrentFilter = currentFilter;
 
         yield return new WaitForEndOfFrame();
 

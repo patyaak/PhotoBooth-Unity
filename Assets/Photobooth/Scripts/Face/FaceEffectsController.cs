@@ -4,6 +4,22 @@ using System.Collections.Generic;
 
 namespace Mediapipe.Unity.Tutorial
 {
+    public enum FilterType
+    {
+        None = 0,
+        Grayscale = 1,
+        Sepia = 2,
+        Cool = 3,
+        Warm = 4,
+        Vintage = 5,
+        HighContrast = 6,
+        Grain = 7,
+        Vivid = 8,
+        Dramatic = 9,
+        Noir = 10,
+        Fade = 11
+    }
+
     public class FaceEffectsController : MonoBehaviour
     {
         [Header("References")]
@@ -70,6 +86,10 @@ namespace Mediapipe.Unity.Tutorial
         [Header("Segmentation")]
         [SerializeField]
         private bool enableSegmentationMask = false;
+
+        [Header("Filters")]
+        [SerializeField]
+        private FilterType currentFilterType = FilterType.None;
 
         [Header("Debug")]
         [SerializeField] private bool showDebugInfo = false;
@@ -431,6 +451,9 @@ namespace Mediapipe.Unity.Tutorial
             brighteningMaterial.SetFloat("_ColorSigma", colorSigma);
             brighteningMaterial.SetFloat("_ExcludeHairFromSmoothing", excludeHairFromSmoothing ? 1.0f : 0.0f);
             brighteningMaterial.SetFloat("_HairDetectionSensitivity", hairDetectionSensitivity);
+
+            // Set filter
+            brighteningMaterial.SetInt("_FilterType", (int)currentFilterType);
 
             if (showDebugInfo)
             {
@@ -801,6 +824,17 @@ namespace Mediapipe.Unity.Tutorial
                 UpdateShaderProperties();
             }
         }
+
+        public FilterType CurrentFilter
+        {
+            get => currentFilterType;
+            set
+            {
+                currentFilterType = value;
+                UpdateShaderProperties();
+            }
+        }
+
 
         public bool EnableSkinDetection
         {

@@ -14,6 +14,9 @@ Shader "Custom/FaceEffects"
         _SmoothingStrength ("Smoothing Strength", Range(0, 1)) = 0.5
         _SmoothingRadius ("Smoothing Radius", Int) = 5
         _ColorSigma ("Color Sigma", Range(0.01, 1)) = 0.2
+
+        // Filter Properties
+        _FilterType ("Filter Type", Int) = 0
     }
 
     SubShader
@@ -73,6 +76,9 @@ Shader "Custom/FaceEffects"
             float _ColorSigma;
             float _ExcludeHairFromSmoothing;
             float _HairDetectionSensitivity;
+
+            // Filter Type
+            int _FilterType;
 
             // Eye, Eyebrow, and Mouth Exclusion for Smoothing
             #define EYE_POINTS 16
@@ -647,6 +653,97 @@ Shader "Custom/FaceEffects"
                 return lerp(centerColor, filteredColor, blendFactor);
             }
 
+            // Pseudo-random noise
+            float hash(float2 p)
+            {
+                p = frac(p * float2(123.34, 456.21));
+                p += dot(p, p + 45.32);
+                return frac(p.x * p.y);
+            }
+
+            // ============================================
+            // COLOR FILTERS
+            // ============================================
+            fixed3 ApplyColorFilter(fixed3 color, int filterType, float2 uv)
+            {
+                if (filterType == 0) return color;
+
+                // 1: Grayscale
+                if (filterType == 1)
+                {
+                    float gray = dot(color, float3(0.299, 0.587, 0.114));
+                    return float3(gray, gray, gray);
+                }
+                // 2: Sepia
+                else if (filterType == 2)
+                {
+                    float3 sepia;
+                    sepia.r = dot(color, float3(0.393, 0.769, 0.189));
+                    sepia.g = dot(color, float3(0.349, 0.686, 0.168));
+                    sepia.b = dot(color, float3(0.272, 0.534, 0.131));
+                    return sepia;
+                }
+                // 3: Cool (Blue Tint)
+                else if (filterType == 3)
+                {
+                    return color * float3(0.8, 0.9, 1.1);
+                }
+                // 4: Warm (Orange Tint)
+                else if (filterType == 4)
+                {
+                    return color * float3(1.1, 0.95, 0.8);
+                }
+                // 5: Vintage (Sepia + Vignette-like warm)
+                else if (filterType == 5)
+                {
+                    float gray = dot(color, float3(0.299, 0.587, 0.114));
+                    float3 vintage = float3(gray, gray, gray) * float3(1.2, 1.05, 0.9); // Warmer light
+                    return lerp(color, vintage, 0.6); 
+                }
+                // 6: High Contrast
+                else if (filterType == 6)
+                {
+                   return (color - 0.5) * 1.5 + 0.5;
+                }
+                // 7: Grain
+                else if (filterType == 7)
+                {
+                    float noise = hash(uv * 100.0) * 0.1; // Strength 0.1
+                    return color + noise;
+                }
+                // 8: Vivid
+                else if (filterType == 8)
+                {
+                    float3 hsv = color; // Simplified assumption, actually doing RGB ops
+                    float gray = dot(color, float3(0.3, 0.59, 0.11));
+                    return lerp(float3(gray, gray, gray), color, 1.5); // Saturation x1.5
+                }
+                // 9: Dramatic
+                else if (filterType == 9)
+                {
+                    // High Contrast + Desaturation
+                    float3 contrast = (color - 0.5) * 1.4 + 0.5;
+                    float gray = dot(contrast, float3(0.3, 0.59, 0.11));
+                    return lerp(float3(gray, gray, gray), contrast, 0.8); // desaturated slightly
+                }
+                // 10: Noir (BW + Grain + Contrast)
+                else if (filterType == 10)
+                {
+                    float gray = dot(color, float3(0.299, 0.587, 0.114));
+                    gray = (gray - 0.5) * 1.3 + 0.5; // Contrast
+                    float noise = hash(uv * 200.0) * 0.15;
+                    gray += noise;
+                    return float3(gray, gray, gray);
+                }
+                // 11: Fade
+                else if (filterType == 11)
+                {
+                    return (color - 0.2) * 0.8 + 0.25; // Lift blacks, crush whites slightly
+                }
+
+                return color;
+            }
+
             fixed4 frag (v2f i) : SV_Target
             {
                 // ============================================
@@ -672,13 +769,18 @@ Shader "Custom/FaceEffects"
                 // STAGE 3: Subject/Background Segmentation (Optional)
                 // Check first - most efficient early exit
                 // ============================================
+                // ============================================
+                // STAGE 3: Subject/Background Segmentation (Optional)
+                // Use segmentation to mask SMOOTHING/BRIGHTENING but NOT global filters
+                // ============================================
                 if (_EnableSegmentationMask > 0.5)
                 {
                     float maskValue = tex2D(_SegmentationMask, i.uv).r;
-                    // If background (maskValue ~= 0), skip immediately
-                    // Mask: 1.0 (white) = person, 0.0 (black) = background
+                    // If background (maskValue < 0.5), force geometricWeight to 0
+                    // This disables smoothing and brightening for background
+                    // BUT keeps execution flow going so filters are applied at the end
                     if (maskValue < 0.5)
-                        return col;
+                        geometricWeight = 0.0;
                 }
 
                 // ============================================
@@ -740,6 +842,12 @@ Shader "Custom/FaceEffects"
                     // Prevent overexposure
                     col.rgb = saturate(col.rgb);
                 }
+
+                // ============================================
+                // STEP 4: APPLY COLOR FILTER
+                // ============================================
+                col.rgb = ApplyColorFilter(col.rgb, _FilterType, i.uv);
+                col.rgb = saturate(col.rgb);
 
                 return col;
             }
