@@ -23,7 +23,7 @@ public class Booth
     public bool login_required;
     public bool payments_enabled;         // PAYMENT FLAG
     public bool decoration_enabled;
-    public bool frame_type_tab_enabled;
+    public bool default_enabled;
     public string price;                  // Frame price
     public string gacha_price;            // Gacha price (NEW)
 }
@@ -75,6 +75,7 @@ public class Frame
     public string created_at;
     public string updated_at;
     public string total_uses;
+    public string uses_remaining;
     public string type;
     public Creator creator;
     public Approver approver;

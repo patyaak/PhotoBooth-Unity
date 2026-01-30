@@ -264,6 +264,8 @@ public class VendorLogin : MonoBehaviour
                     PlayerPrefs.SetString("booth_price", booth.price.ToString());
                     PlayerPrefs.SetString("gacha_price", booth.gacha_price.ToString());
                     PlayerPrefs.SetInt("payments_enabled", booth.payments_enabled ? 1 : 0);
+                    PlayerPrefs.SetInt("decoration_enabled", booth.decoration_enabled ? 1 : 0);
+                    PlayerPrefs.SetInt("default_enabled", booth.default_enabled ? 1 : 0);
                     PlayerPrefs.SetInt("login_required", booth.login_required ? 1 : 0);
                     PlayerPrefs.Save();
 
@@ -272,6 +274,8 @@ public class VendorLogin : MonoBehaviour
                     Debug.Log($"   • Price: {booth.price}");
                     Debug.Log($"   • Gacha: {booth.gacha_price}");
                     Debug.Log($"   • Payments: {booth.payments_enabled}");
+                    Debug.Log($"   • Decoration: {booth.decoration_enabled}");
+                    Debug.Log($"   • Default Tab: {booth.default_enabled}");
                     Debug.Log($"   • Login Required: {booth.login_required}");
 
                     // Show/hide QR generation button based on login_required

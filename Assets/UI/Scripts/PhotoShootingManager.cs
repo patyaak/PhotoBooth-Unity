@@ -18,6 +18,7 @@ public class PhotoShootingManager : MonoBehaviour
     [Header("Panels")]
     public GameObject photoShootPanel;
     public GameObject beautificationPanel;
+    public GameObject editPanel; // NEW
     public GameObject photoPreviewPanel;
     
     [Header("Countdown")]
@@ -338,6 +339,15 @@ public class PhotoShootingManager : MonoBehaviour
     public void OpenBeautificationForImage(Texture2D image, int placeholderIndex, float w, float h)
     {
         beautificationPanel.SetActive(true);
+
+        // Control EditPanel visibility based on decoration_enabled flag
+        if (editPanel != null)
+        {
+            bool isDecorationEnabled = PlayerPrefs.GetInt("decoration_enabled", 1) == 1;
+            editPanel.SetActive(isDecorationEnabled);
+            Debug.Log($"🎨 EditPanel active state set to: {isDecorationEnabled}");
+        }
+
         uiController.OnLoadSingleCaptureImage(image, placeholderIndex, w, h);
     }
 

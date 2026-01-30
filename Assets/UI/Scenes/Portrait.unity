@@ -1244,6 +1244,7 @@ MonoBehaviour:
   uiController: {fileID: 181174912}
   photoShootPanel: {fileID: 1128287894}
   beautificationPanel: {fileID: 181174910}
+  editPanel: {fileID: 1910679734}
   photoPreviewPanel: {fileID: 0}
   timerRoot: {fileID: 58470446}
   count3: {fileID: 463247811}
@@ -2098,6 +2099,7 @@ RectTransform:
   - {fileID: 803881293}
   - {fileID: 2027102102}
   - {fileID: 1910679735}
+  - {fileID: 1537429729}
   m_Father: {fileID: 7165218558186297202}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0.5, y: 0.5}
@@ -14240,11 +14242,11 @@ RectTransform:
   - {fileID: 179331343}
   - {fileID: 17855499}
   - {fileID: 721126140}
-  m_Father: {fileID: 1910679735}
+  m_Father: {fileID: 181174911}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0.5, y: 0}
   m_AnchorMax: {x: 0.5, y: 0}
-  m_AnchoredPosition: {x: 339, y: -58}
+  m_AnchoredPosition: {x: 372.7601, y: 79.279945}
   m_SizeDelta: {x: 0, y: 0}
   m_Pivot: {x: 0.5, y: 0}
 --- !u!1 &1566481673
@@ -17196,7 +17198,6 @@ RectTransform:
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:
-  - {fileID: 1537429729}
   - {fileID: 953725930}
   m_Father: {fileID: 181174911}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
@@ -21338,6 +21339,7 @@ MonoBehaviour:
   useAdaptiveSkinColor: 1
   autoAdjustToleranceByBrightness: 1
   enableSegmentationMask: 1
+  currentFilterType: 0
   showDebugInfo: 1
   debugSegmentationMask: 0
 --- !u!114 &5880857153684611478

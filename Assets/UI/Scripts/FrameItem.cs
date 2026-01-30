@@ -14,6 +14,10 @@ class FrameItem : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler,IPoin
     public Transform layoutParent;
     public TMP_Text shotCountText;
     public TMP_Text layoutCountText;
+    
+    [Header("Usage Info")]
+    public GameObject totalUsesObject;
+    public TMP_Text usesRemainingText;
 
     [Header("Colors")]
     public Color defaultColor = Color.black;
@@ -35,7 +39,7 @@ class FrameItem : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler,IPoin
 
     public string cachedFrameAssetPath;
 
-    public void Setup(Frame frame)
+    public void Setup(Frame frame, string category = "")
     {
         frameData = frame;
 
@@ -51,13 +55,25 @@ class FrameItem : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler,IPoin
             layoutCountText.color = defaultColor;
         }
 
+        // Handle Total Uses display (Only for 'myframe' category)
+        if (totalUsesObject != null)
+        {
+            bool showUses = (category == "myframe");
+            totalUsesObject.SetActive(showUses);
+
+            if (showUses && usesRemainingText != null)
+            {
+                usesRemainingText.text = string.IsNullOrEmpty(frame.uses_remaining) ? "∞" : frame.uses_remaining;
+            }
+        }
+
         int slotCount = frame.number_of_layouts > 0
                             ? frame.number_of_layouts
                             : Mathf.Max(1, frame.number_of_shots);
         CreateLayoutSlots(slotCount);
         cachedFrameAssetPath = Path.Combine(Application.persistentDataPath, "FrameCache", Path.GetFileName(frame.asset_path));
 
-}
+    }
 
     public void CreateLayoutSlots(int count)
     {

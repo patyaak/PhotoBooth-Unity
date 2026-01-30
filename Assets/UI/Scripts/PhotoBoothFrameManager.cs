@@ -72,7 +72,7 @@ public class PhotoBoothFrameManager : MonoBehaviour
         StoreNormalSprites();
         SetupButtonListeners();
         SetupScrollRectListeners();
-        OnCategoryButtonClicked(defaultButton);
+        ResetToDefaultCategory(); // Use the logic to decide correct starting category
     }
 
     private void OnEnable()
@@ -219,13 +219,43 @@ public class PhotoBoothFrameManager : MonoBehaviour
             currentSelectedFrame = null;
         }
 
-        // Reset to default category
-        currentCategory = "default";
+        // Check if "Default" category is enabled
+        bool isDefaultEnabled = PlayerPrefs.GetInt("default_enabled", 1) == 1;
 
-        // Reset all button visuals to normal state
+        if (defaultButton != null)
+        {
+            defaultButton.gameObject.SetActive(isDefaultEnabled);
+        }
+
+        // Determine which category to start with
+        if (isDefaultEnabled)
+        {
+            currentCategory = "default";
+            if (defaultButton != null)
+            {
+                ApplySelectedSprite(defaultButton);
+                currentSelectedButton = defaultButton;
+            }
+        }
+        else
+        {
+            // Fallback to "recommended" if default is disabled
+            currentCategory = "recommended";
+            if (recommendationButton != null)
+            {
+                ApplySelectedSprite(recommendationButton);
+                currentSelectedButton = recommendationButton;
+            }
+        }
+
+        // Reset all button visuals to normal state (except selected)
         if (currentSelectedButton != null)
         {
-            ResetButtonSprite(currentSelectedButton);
+            // Reset others
+            if (defaultButton != currentSelectedButton) ResetButtonSprite(defaultButton);
+            if (recommendationButton != currentSelectedButton) ResetButtonSprite(recommendationButton);
+            if (gatchaButton != currentSelectedButton) ResetButtonSprite(gatchaButton);
+            if (myFrameButton != currentSelectedButton) ResetButtonSprite(myFrameButton);
         }
 
         // Re-enable all category buttons (in case gacha disabled them)
@@ -233,13 +263,6 @@ public class PhotoBoothFrameManager : MonoBehaviour
         if (recommendationButton) recommendationButton.interactable = true;
         if (myFrameButton) myFrameButton.interactable = true;
         if (gatchaButton) gatchaButton.interactable = true;
-
-        // Set default button as selected
-        if (defaultButton != null)
-        {
-            ApplySelectedSprite(defaultButton);
-            currentSelectedButton = defaultButton;
-        }
 
         // Reset scroll position to start
         if (scrollRect != null)
@@ -253,10 +276,10 @@ public class PhotoBoothFrameManager : MonoBehaviour
             GatchaManager.Instance.ClearSpawnedFramesInstant();
         }
 
-        // Fetch default frames
+        // Fetch frames (will fetch currentCategory)
         StartCoroutine(FetchFramesFromServer());
 
-        Debug.Log("✅ Reset to default category complete");
+        Debug.Log($"✅ Reset complete. Selected category: {currentCategory}");
     }
 
     // ==================================================================
@@ -394,7 +417,7 @@ public class PhotoBoothFrameManager : MonoBehaviour
             FrameItem item = obj.GetComponent<FrameItem>();
             if (item != null)
             {
-                item.Setup(frame);
+                item.Setup(frame, currentCategory);
                 item.DisableSelection(currentCategory == "gacha");
                 currentFrameItems.Add(item);
             }
@@ -561,6 +584,12 @@ public class PhotoBoothFrameManager : MonoBehaviour
         currentSelectedFrame = item;
         currentSelectedFrame?.Select();
 
+        if (item != null && item.frameData != null)
+        {
+            Debug.Log($"[Current Selected Frame] Name: {item.frameData.title}, ID: {item.frameData.frame_id}, Shots: {item.frameData.number_of_shots}, Category: {item.frameData.category}");
+            Debug.Log($"[Frame Data Full]\n{JsonUtility.ToJson(item.frameData, true)}");
+        }
+        
         //LOG: Frame Selected
         LoggingManager.Instance?.LogCustomerClick(
        buttonName: "FrameSelection",
@@ -571,9 +600,7 @@ public class PhotoBoothFrameManager : MonoBehaviour
 
     public FrameItem GetSelectedFrameItem() => currentSelectedFrame;
 
-    // ==================================================================
-    // MEMORY SAFETY – PREVENT VRAM CRASH
-    // ==================================================================
+   
     public void ClearAssetCache()
     {
         foreach (var kvp in assetCache)
