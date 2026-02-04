@@ -32,7 +32,7 @@ public class UiController : MonoBehaviour
     private int currentEditingIndex = -1;
 
     // Filter Selection
-    private FilterType currentFilter = FilterType.None;
+    private FilterType currentFilter = FilterType.Original;
 
     // Store placeholder dimensions for accurate preview
     private float placeholderWidth;
@@ -84,7 +84,7 @@ public class UiController : MonoBehaviour
     /// <summary>
     /// Load image for beautification with placeholder dimensions for accurate preview
     /// </summary>
-    public void OnLoadSingleCaptureImage(Texture2D image, int shotIndex, float phWidth, float phHeight)
+    public void OnLoadSingleCaptureImage(Texture2D image, int shotIndex, float phWidth, float phHeight, string filterName = "")
     {
         if (image == null) return;
 
@@ -132,8 +132,24 @@ public class UiController : MonoBehaviour
         smoothenSlider.value = currentSmoothness;
         eyeEnlargementSlider.value = currentEnlarge;
         
-        // Reset Filter
-        currentFilter = FilterType.None;
+        // Reset or Apply Filter
+        currentFilter = FilterType.Original;
+        
+        if (!string.IsNullOrEmpty(filterName))
+        {
+             if (System.Enum.TryParse(filterName, true, out FilterType parsedFilter))
+             {
+                 currentFilter = parsedFilter;
+                 // Don't log if it's Original (default), only log if a specific filter is applied
+                 if (currentFilter != FilterType.Original)
+                    Debug.Log($"🎨 Auto-applying filter: {currentFilter}");
+             }
+             else
+             {
+                 Debug.LogWarning($"⚠️ Could not parse filter name: '{filterName}' - Defaulting to Original");
+                 currentFilter = FilterType.Original;
+             }
+        }
         
         blockCallbacks = false;
 
@@ -185,15 +201,6 @@ public class UiController : MonoBehaviour
         faceController.SmoothingStrength = currentSmoothness;
         faceController.UpdateEyeEnlargementStrength(currentEnlarge);
         faceController.CurrentFilter = currentFilter;
-    }
-
-    public void OnFilterSelected(int filterTypeInt)
-    {
-        if (blockCallbacks) return;
-        
-        currentFilter = (FilterType)filterTypeInt;
-        ApplySettingsToFaceController();
-        Debug.Log($"🎨 Filter selected: {currentFilter}");
     }
 
     private void OnDone()

@@ -348,7 +348,13 @@ public class PhotoShootingManager : MonoBehaviour
             Debug.Log($"🎨 EditPanel active state set to: {isDecorationEnabled}");
         }
 
-        uiController.OnLoadSingleCaptureImage(image, placeholderIndex, w, h);
+        string autoFilter = "";
+        if (currentFrameItem != null && currentFrameItem.frameData != null)
+        {
+            autoFilter = currentFrameItem.frameData.filter;
+        }
+
+        uiController.OnLoadSingleCaptureImage(image, placeholderIndex, w, h, autoFilter);
     }
 
     public void OnBeautificationComplete()

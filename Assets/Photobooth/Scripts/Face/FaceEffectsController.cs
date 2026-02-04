@@ -6,7 +6,7 @@ namespace Mediapipe.Unity.Tutorial
 {
     public enum FilterType
     {
-        None = 0,
+        Original = 0,
         Grayscale = 1,
         Sepia = 2,
         Cool = 3,
@@ -89,7 +89,7 @@ namespace Mediapipe.Unity.Tutorial
 
         [Header("Filters")]
         [SerializeField]
-        private FilterType currentFilterType = FilterType.None;
+        private FilterType currentFilterType = FilterType.Original;
 
         [Header("Debug")]
         [SerializeField] private bool showDebugInfo = false;

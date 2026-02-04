@@ -60,6 +60,7 @@ public class Frame
     public string title;
     public string description;
     public string category;
+    public string filter;
     public string status;
     public string asset_path;
     public string thumb_path;
