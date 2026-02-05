@@ -102,6 +102,29 @@ public class PhotoShootingManager : MonoBehaviour
 
         InitializeWebcamDropdown();
 
+        // -------------------------------------------------------------
+        // AUTO-DISCOVERY FOR FACE EFFECTS (User Convenience)
+        // -------------------------------------------------------------
+        if (liveCameraFaceEffects == null && cameraPreview != null)
+        {
+            // Try explicit component on the preview object logic
+            liveCameraFaceEffects = cameraPreview.GetComponent<FaceEffectsController>();
+            
+            // Try looking in children (common if preview has a wrapper)
+            if (liveCameraFaceEffects == null)
+                liveCameraFaceEffects = cameraPreview.GetComponentInChildren<FaceEffectsController>();
+
+            // Try looking in parent (common if preview is child of a manager)
+            if (liveCameraFaceEffects == null)
+                liveCameraFaceEffects = cameraPreview.GetComponentInParent<FaceEffectsController>();
+
+            if (liveCameraFaceEffects != null)
+                Debug.Log($"📷 Auto-connected Live Camera Face Effects found on: {liveCameraFaceEffects.name}");
+            else
+                Debug.LogWarning("⚠️ Could not auto-detect FaceEffectsController on CameraPreview. Please assign 'Live Camera Face Effects' manually in Inspector.");
+        }
+        // -------------------------------------------------------------
+
         Debug.Log($"🖨️ Auto-print is: {(autoPrintAfterCapture ? "ENABLED ✅" : "DISABLED ⏸️")}");
     }
 
@@ -168,9 +191,14 @@ public class PhotoShootingManager : MonoBehaviour
         }
     }
 
+    [Header("Face Effects (Live Preview)")]
+    public FaceEffectsController liveCameraFaceEffects;
+
     public void StartShooting(FrameItem selectedFrame, string orderID = null)
     {
         if (selectedFrame == null) return;
+
+        photoShootPanel.SetActive(true); // Activate early to ensure child objects (CameraPreview) are findable
 
         currentFrameItem = selectedFrame;
         totalAllowedShots = selectedFrame.frameData.number_of_shots;
@@ -179,6 +207,48 @@ public class PhotoShootingManager : MonoBehaviour
         uniqueIndices.Clear();
         
         currentRetakeCount = 0; // Reset for first shot
+
+        // Apply automatic filter to Live Camera Preview
+        if (liveCameraFaceEffects != null)
+        {
+            // FIX: Check if we are accidentally controlling the STATIC controller instead of the LIVE one
+            if (liveCameraFaceEffects.gameObject.name.Contains("FaceLandmarkerRunner"))
+            {
+                Debug.LogWarning("⚠️ DETECTED WRONG CONTROLLER: 'FaceLandmarkerRunner' is for static editing! Attempting to find 'CameraPreview'...");
+                var camPreviewObj = GameObject.Find("CameraPreview");
+                if (camPreviewObj != null)
+                {
+                    var liveController = camPreviewObj.GetComponent<FaceEffectsController>();
+                    if (liveController != null)
+                    {
+                        liveCameraFaceEffects = liveController;
+                        Debug.Log("✅ AUTO-CORRECTED [Fixed]: Switched to 'CameraPreview' controller.");
+                    }
+                }
+            }
+
+            string autoFilter = selectedFrame.frameData.filter;
+            liveCameraFaceEffects.SetFilter(autoFilter);
+            Debug.Log($"📷 Live Camera Filter applied: {autoFilter} on Object: '{liveCameraFaceEffects.gameObject.name}'");
+        }
+        else
+        {
+            // Emergency fallback: Try to find it by name "CameraPreview" if strictly needed
+            var camPreviewObj = GameObject.Find("CameraPreview");
+            if (camPreviewObj != null)
+            {
+                 liveCameraFaceEffects = camPreviewObj.GetComponent<FaceEffectsController>();
+                 if (liveCameraFaceEffects != null)
+                 {
+                     string autoFilter = selectedFrame.frameData.filter;
+                     liveCameraFaceEffects.SetFilter(autoFilter);
+                     Debug.Log($"📷 EMERGENCY FOUND & APPLIED: {autoFilter} on '{liveCameraFaceEffects.gameObject.name}'");
+                     return; 
+                 }
+            }
+            
+            Debug.LogWarning("⚠️ liveCameraFaceEffects is NULL! Cannot apply live filter.");
+        }
 
         foreach (var asset in selectedFrame.frameData.assets)
         {
@@ -203,7 +273,7 @@ public class PhotoShootingManager : MonoBehaviour
         Debug.Log($"Found {placeholders.Count} placeholders with {uniqueIndices.Count} unique indices: [{string.Join(", ", uniqueIndices)}]");
 
         currentShotIndex = 0;
-        photoShootPanel.SetActive(true);
+
 
         // Clear previous session's beautified images for a fresh start (Fix for 2nd customer issue)
         if (UiController.Instance != null)

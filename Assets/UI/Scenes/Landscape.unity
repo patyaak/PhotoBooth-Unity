@@ -614,6 +614,7 @@ MonoBehaviour:
   selectedAspect: 0
   maxRetakes: 2
   capturedPhotos: []
+  liveCameraFaceEffects: {fileID: 5879540910052130234}
 --- !u!4 &82522101
 Transform:
   m_ObjectHideFlags: 0
@@ -19562,6 +19563,7 @@ GameObject:
   - component: {fileID: 8403415400016891281}
   - component: {fileID: 7174028995736428523}
   - component: {fileID: 1984206576407505659}
+  - component: {fileID: 8403415400016891282}
   m_Layer: 0
   m_Name: CameraPreview
   m_TagString: Untagged
@@ -22499,6 +22501,41 @@ RectTransform:
   m_AnchoredPosition: {x: 0, y: 0}
   m_SizeDelta: {x: 800, y: 800}
   m_Pivot: {x: 0.5, y: 0.5}
+--- !u!114 &8403415400016891282
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1996831383412672192}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: afa995e48d1ba924a866f656b820af98, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Mediapipe.Unity.Tutorial.FaceEffectsController
+  targetImage: {fileID: 1984206576407505659}
+  faceEffectsShader: {fileID: 4800000, guid: 96bf56f01c70b8a41a962d8c7a415ca5, type: 3}
+  brightenStrength: 0.2
+  regionExpansion: 0.12
+  foreheadExpansionMultiplier: 1.5
+  enableBrightening: 1
+  eyeRadiusMultiplier: 1.5
+  eyeEnlargementStrength: 0.4
+  enableEyeEnlargement: 1
+  smoothingStrength: 0.5
+  smoothingRadius: 5
+  colorSigma: 0.2
+  enableSmoothing: 1
+  excludeHairFromSmoothing: 1
+  hairDetectionSensitivity: 0.5
+  enableSkinDetection: 1
+  skinTolerance: 5
+  useAdaptiveSkinColor: 1
+  autoAdjustToleranceByBrightness: 1
+  enableSegmentationMask: 0
+  currentFilterType: 0
+  showDebugInfo: 0
+  debugSegmentationMask: 0
 --- !u!1 &8424711193899272067
 GameObject:
   m_ObjectHideFlags: 0

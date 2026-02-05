@@ -136,6 +136,14 @@ namespace Mediapipe.Unity.Tutorial
 
         private void Awake()
         {
+            // Auto-find shader if not assigned
+            if (faceEffectsShader == null)
+            {
+                faceEffectsShader = Shader.Find("Custom/FaceEffects");
+                if (faceEffectsShader != null)
+                    Debug.Log("✅ Auto-found 'Custom/FaceEffects' shader");
+            }
+
             // Create material from shader
             if (faceEffectsShader != null)
             {
@@ -143,7 +151,7 @@ namespace Mediapipe.Unity.Tutorial
             }
             else
             {
-                Debug.LogError("❌ Face Effects Shader is not assigned!");
+                Debug.LogError("❌ Face Effects Shader is not assigned and could not be found!");
             }
         }
 
@@ -155,6 +163,13 @@ namespace Mediapipe.Unity.Tutorial
                 return;
             }
 
+            if (targetImage == null)
+            {
+                targetImage = GetComponent<RawImage>();
+                if (targetImage != null && showDebugInfo)
+                    Debug.Log("✅ Auto-assigned RawImage component to FaceEffectsController");
+            }
+
             if (targetImage != null)
             {
                 targetImage.material = brighteningMaterial;
@@ -163,7 +178,7 @@ namespace Mediapipe.Unity.Tutorial
             }
             else
             {
-                Debug.LogError("❌ Target RawImage is not assigned!");
+                Debug.LogError("❌ Target RawImage is not assigned and could not be found on this GameObject!");
             }
 
             // Initialize face points array ONLY if not already set
@@ -399,6 +414,13 @@ namespace Mediapipe.Unity.Tutorial
             {
                 Debug.LogWarning("⚠️ Cannot update shader - material is null");
                 return;
+            }
+
+            // aggressive check: ensure material is assigned to image
+            if (targetImage != null && targetImage.material != brighteningMaterial)
+            {
+                targetImage.material = brighteningMaterial;
+                // Debug.Log("🔄 Re-assigned brightening material to target image");
             }
 
             if (showDebugInfo)
@@ -805,6 +827,50 @@ namespace Mediapipe.Unity.Tutorial
             }
         }
 
+        public FilterType CurrentFilter
+        {
+            get => currentFilterType;
+            set
+            {
+                currentFilterType = value;
+                UpdateShaderProperties();
+            }
+        }
+
+        /// <summary>
+        /// Set filter by string name (case-insensitive).
+        /// Handles "Original" and "None" as Original/No Filter.
+        /// </summary>
+        public void SetFilter(string filterName)
+        {
+            if (string.IsNullOrEmpty(filterName))
+            {
+                 // Default behavior if empty string passed: Reset to Original or keep current? 
+                 // Usually safer to do nothing or reset. Let's reset to Original to be safe.
+                 CurrentFilter = FilterType.Original;
+                 return;
+            }
+
+            if (string.Equals(filterName, "Original", System.StringComparison.OrdinalIgnoreCase) || 
+                string.Equals(filterName, "None", System.StringComparison.OrdinalIgnoreCase))
+            {
+                CurrentFilter = FilterType.Original;
+                Debug.Log($"🎨 SetFilter [GameObject: {gameObject.name}]: Original ({filterName})");
+            }
+            else if (System.Enum.TryParse(filterName, true, out FilterType parsedFilter))
+            {
+                CurrentFilter = parsedFilter;
+                Debug.Log($"🎨 SetFilter [GameObject: {gameObject.name}]: {parsedFilter}");
+            }
+            else
+            {
+                Debug.LogWarning($"⚠️ SetFilter [GameObject: {gameObject.name}]: Could not parse '{filterName}' - Defaulting to Original");
+                CurrentFilter = FilterType.Original;
+            }
+                  
+
+        }
+
         public float RegionExpansion
         {
             get => regionExpansion;
@@ -825,15 +891,7 @@ namespace Mediapipe.Unity.Tutorial
             }
         }
 
-        public FilterType CurrentFilter
-        {
-            get => currentFilterType;
-            set
-            {
-                currentFilterType = value;
-                UpdateShaderProperties();
-            }
-        }
+
 
 
         public bool EnableSkinDetection

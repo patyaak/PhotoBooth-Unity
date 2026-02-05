@@ -47,7 +47,8 @@ public class LogEntry
         log_id = Guid.NewGuid().ToString();
         timestamp = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ");
         synced = false;
-        app_version = UnityEngine.Application.version;
+        // app_version cannot be set in constructor due to Unity serialization rules
+        app_version = ""; 
     }
 }
 
