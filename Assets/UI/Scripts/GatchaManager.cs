@@ -586,7 +586,14 @@ public class GatchaManager : MonoBehaviour
             yield return null;
         }
 
-        Destroy(obj);
+        if (PhotoBoothFrameManager.Instance != null && obj.transform.parent == PhotoBoothFrameManager.Instance.contentParent)
+        {
+            obj.SetActive(false);
+        }
+        else
+        {
+            Destroy(obj);
+        }
     }
 
     public void RegisterSpawnedFrame(GameObject frameObj)
@@ -598,7 +605,20 @@ public class GatchaManager : MonoBehaviour
     public void ClearSpawnedFramesInstant()
     {
         foreach (var obj in spawnedFrames)
-            if (obj != null) Destroy(obj);
+        {
+            if (obj != null)
+            {
+                // Fix for Pooling: Don't destroy frames from the main list (contentParent)
+                if (PhotoBoothFrameManager.Instance != null && obj.transform.parent == PhotoBoothFrameManager.Instance.contentParent)
+                {
+                    obj.SetActive(false);
+                }
+                else
+                {
+                    Destroy(obj);
+                }
+            }
+        }
         spawnedFrames.Clear();
     }
 

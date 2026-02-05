@@ -63,6 +63,7 @@ Shader "Custom/FaceEffects"
             float4 _FaceOvalPoints[360];  // 10 faces * 36 points
             int _FaceOvalCount;  // Points per face (always 36)
             int _FaceCount;      // Number of detected faces
+            float4 _FaceBoundingBoxes[10]; // Face bounding boxes [minX, minY, maxX, maxY]
 
             // Eye Enlargement Parameters
             // Note: _LeftEyeCenters and _RightEyeCenters store (x, y, radius, 0) per eye
@@ -235,6 +236,11 @@ Shader "Custom/FaceEffects"
                 // Check each face independently and take the maximum weight
                 for (int faceIdx = 0; faceIdx < _FaceCount; faceIdx++)
                 {
+                    // Optimization: Bounding Box Check to skip expensive calculations
+                    // Using margins: 0.25 side/bottom, 0.6 top (for forehead expansion)
+                    float4 bbox = _FaceBoundingBoxes[faceIdx];
+                    if (p.x < bbox.x - 0.25 || p.x > bbox.z + 0.25 || p.y < bbox.y - 0.25 || p.y > bbox.w + 0.6) continue;
+
                     int baseIndex = faceIdx * POINTS_PER_FACE;
 
                     // Check if inside this specific face

@@ -391,6 +391,42 @@ public class PhotoBoothFrameManager : MonoBehaviour
             DisplayFrames(framesToDisplay);
     }
 
+    private Queue<GameObject> framePool = new Queue<GameObject>();
+
+    public void ClearFrames()
+    {
+        foreach (var item in currentFrameItems)
+            item?.Deselect();
+
+        currentFrameItems.Clear();
+        currentSelectedFrame = null;
+
+        // Return current active objects to pool
+        // We iterate backwards or just loop through transform children
+        // But since we are modifying hierarchy or just disabling, let's iterate safe
+        
+        // Better: iterate transform children, disable them, add to pool
+        // Note: contentParent might have other things (empty state obj?), check specific component
+        for (int i = contentParent.childCount - 1; i >= 0; i--)
+        {
+            Transform child = contentParent.GetChild(i);
+            GameObject go = child.gameObject;
+            
+            // Check if it's a frame item (and not empty state message)
+            if (go.GetComponent<FrameItem>())
+            {
+                go.SetActive(false);
+                framePool.Enqueue(go);
+            }
+            else
+            {
+                // If it's the empty state message, destroy it or handle separately
+                if (go.GetComponentInChildren<TextMeshProUGUI>())
+                    Destroy(go);
+            }
+        }
+    }
+
     private void DisplayFrames(List<Frame> frames)
     {
         if (GatchaManager.Instance != null)
@@ -407,8 +443,18 @@ public class PhotoBoothFrameManager : MonoBehaviour
 
         foreach (Frame frame in frames)
         {
-            GameObject obj = Instantiate(framePrefab, contentParent);
-            obj.SetActive(true);
+            GameObject obj;
+            if (framePool.Count > 0)
+            {
+                obj = framePool.Dequeue();
+                obj.transform.SetParent(contentParent, false); // Ensure it's at the end
+                obj.SetActive(true);
+            }
+            else
+            {
+                obj = Instantiate(framePrefab, contentParent);
+                obj.SetActive(true);
+            }
 
             Button btn = obj.GetComponent<Button>();
             if (btn != null)
@@ -611,17 +657,7 @@ public class PhotoBoothFrameManager : MonoBehaviour
         downloadingAssets.Clear();
     }
 
-    public void ClearFrames()
-    {
-        foreach (var item in currentFrameItems)
-            item?.Deselect();
 
-        foreach (Transform child in contentParent)
-            Destroy(child.gameObject);
-
-        currentFrameItems.Clear();
-        currentSelectedFrame = null;
-    }
 
 
     public void OnDecideButtonClicked()

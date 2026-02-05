@@ -72,6 +72,7 @@ public class PhotoShootingManager : MonoBehaviour
     private int currentShotIndex = 0;
     public List<Texture2D> capturedPhotos = new List<Texture2D>();
     private List<FrameAsset> placeholders = new List<FrameAsset>();
+    private List<Vector2> cachedPlaceholderSizes = new List<Vector2>();
 
     private Dictionary<int, Texture2D> photoByIndex = new Dictionary<int, Texture2D>();
     private List<int> uniqueIndices = new List<int>();
@@ -180,11 +181,11 @@ public class PhotoShootingManager : MonoBehaviour
             float phWidth = 800f;
             float phHeight = 800f;
 
-            if (currentShotIndex < placeholders.Count)
+            if (currentShotIndex < cachedPlaceholderSizes.Count)
             {
-                var ph = placeholders[currentShotIndex];
-                phWidth = float.Parse(ph.width);
-                phHeight = float.Parse(ph.height);
+                var size = cachedPlaceholderSizes[currentShotIndex];
+                phWidth = size.x;
+                phHeight = size.y;
             }
 
             ApplyCenterCropToRawImageWithPlaceholder(cameraPreview, webCamTexture.width, webCamTexture.height, phWidth, phHeight);
@@ -262,6 +263,20 @@ public class PhotoShootingManager : MonoBehaviour
         {
             Debug.LogError("No placeholders found! Check if placeholder_index is being deserialized correctly.");
             return;
+        }
+
+        // Cache placeholder sizes to avoid float.Parse in Update
+        cachedPlaceholderSizes.Clear();
+        foreach (var ph in placeholders)
+        {
+            if (float.TryParse(ph.width, out float w) && float.TryParse(ph.height, out float h))
+            {
+                cachedPlaceholderSizes.Add(new Vector2(w, h));
+            }
+            else
+            {
+                cachedPlaceholderSizes.Add(new Vector2(800f, 800f)); // Default
+            }
         }
 
         uniqueIndices = placeholders

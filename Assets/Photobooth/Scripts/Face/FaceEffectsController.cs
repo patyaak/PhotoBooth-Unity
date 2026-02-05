@@ -109,6 +109,7 @@ namespace Mediapipe.Unity.Tutorial
 
         private const int POINTS_PER_FACE = 36;
         private Vector4[] faceOvalPoints = new Vector4[MAX_FACES * POINTS_PER_FACE]; // 360 points total
+        private Vector4[] faceBoundingBoxes = new Vector4[MAX_FACES]; // [minX, minY, maxX, maxY]
         private int currentFaceCount = 0;
         private bool hasValidFaceData = false;
 
@@ -251,6 +252,12 @@ namespace Mediapipe.Unity.Tutorial
                 var landmarks = allFaceLandmarks[faceIdx];
                 int baseIndex = faceIdx * POINTS_PER_FACE;
 
+                // Initialize bbox with inverted values
+                float minX = 1.0f;
+                float minY = 1.0f;
+                float maxX = 0.0f;
+                float maxY = 0.0f;
+
                 // Convert face oval landmarks to normalized UV coordinates
                 for (int i = 0; i < faceOvalIndices.Length; i++)
                 {
@@ -266,6 +273,12 @@ namespace Mediapipe.Unity.Tutorial
 
                         faceOvalPoints[baseIndex + i] = new Vector4(uvX, uvY, 0, 0);
 
+                        // Update bounding box
+                        if (uvX < minX) minX = uvX;
+                        if (uvX > maxX) maxX = uvX;
+                        if (uvY < minY) minY = uvY;
+                        if (uvY > maxY) maxY = uvY;
+
                         if (showDebugInfo && faceIdx == 0 && i == 0)
                         {
                             Debug.Log($"🎯 Face[{faceIdx}] Landmark[0]: localPos=({localPos.x:F2},{localPos.y:F2}) -> UV=({uvX:F3},{uvY:F3})");
@@ -276,6 +289,9 @@ namespace Mediapipe.Unity.Tutorial
                         Debug.LogWarning($"⚠️ Face[{faceIdx}] Landmark index {landmarkIndex} out of range (count: {landmarks.Count})");
                     }
                 }
+
+                // Store bbox
+                faceBoundingBoxes[faceIdx] = new Vector4(minX, minY, maxX, maxY);
             }
 
             hasValidFaceData = true;
@@ -434,6 +450,7 @@ namespace Mediapipe.Unity.Tutorial
             brighteningMaterial.SetInt("_FaceOvalCount", hasValidFaceData ? POINTS_PER_FACE : 0);
             brighteningMaterial.SetInt("_FaceCount", hasValidFaceData ? currentFaceCount : 0);
             brighteningMaterial.SetVectorArray("_FaceOvalPoints", faceOvalPoints);
+            brighteningMaterial.SetVectorArray("_FaceBoundingBoxes", faceBoundingBoxes);
 
             // Set brightening parameters
             brighteningMaterial.SetFloat("_BrightenStrength", enableBrightening ? brightenStrength : 0f);

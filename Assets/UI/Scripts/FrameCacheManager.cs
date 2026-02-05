@@ -95,33 +95,46 @@ public static class FrameCacheManager
         string fileName = $"{HashName(url)}{ext}";
         string filePath = Path.Combine(cacheDir, fileName);
 
-        // LOAD FROM CACHE
+        // LOAD FROM CACHE (Using UnityWebRequest for non-blocking load)
         if (File.Exists(filePath))
         {
-            Debug.Log($"[FrameCacheManager] Loaded cached texture: {filePath}");
+            string localUrl = "file://" + filePath;
+            using (UnityWebRequest req = UnityWebRequestTexture.GetTexture(localUrl))
+            {
+                yield return req.SendWebRequest();
 
-            try
-            {
-                byte[] bytes = File.ReadAllBytes(filePath);
-                Texture2D tex = new Texture2D(2, 2);
-                tex.LoadImage(bytes);
-                onDone?.Invoke(tex);
-                yield break;
-            }
-            catch (System.Exception ex)
-            {
-                Debug.LogWarning($"⚠️ Failed reading cached texture: {ex.Message}");
+                if (req.result == UnityWebRequest.Result.Success)
+                {
+                    Texture2D tex = DownloadHandlerTexture.GetContent(req);
+                    if (tex != null)
+                    {
+                         // Debug.Log($"[FrameCacheManager] Loaded cached texture: {filePath}");
+                        onDone?.Invoke(tex);
+                        yield break;
+                    }
+                }
+                // If local load failed (corrupt?), fall through to download
+                Debug.LogWarning($"⚠️ Failed reading cached texture (redownloading): {filePath}");
             }
         }
 
         // DOWNLOAD
         using (UnityWebRequest req = UnityWebRequestTexture.GetTexture(url))
         {
+            // Fix for 403: Mimic a real browser (Chrome on Windows)
+            // Some servers require Referer/Origin or specific Accept headers
+            req.SetRequestHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
+            req.SetRequestHeader("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8");
+            req.SetRequestHeader("Referer", "https://photo-stg-api.chvps3.aozora-okinawa.com/");
+            // req.SetRequestHeader("Origin", "https://photo-stg-api.chvps3.aozora-okinawa.com"); // Sometimes needed, sometimes breaks it. Let's try Referer first.
+            req.SetRequestHeader("Accept-Language", "en-US,en;q=0.9");
+            req.SetRequestHeader("Cache-Control", "max-age=0");
+            
             yield return req.SendWebRequest();
 
             if (req.result != UnityWebRequest.Result.Success)
             {
-                Debug.LogWarning($"⚠️ Download failed: {req.error}");
+                Debug.LogWarning($"⚠️ Download failed: {req.error} ({url})");
                 onDone?.Invoke(null);
                 yield break;
             }
@@ -129,14 +142,13 @@ public static class FrameCacheManager
             Texture2D downloaded = DownloadHandlerTexture.GetContent(req);
             onDone?.Invoke(downloaded);
 
-            // SAVE TO CACHE
+            // SAVE TO CACHE (Async file write not easily available, but fast enough for binary)
             try
             {
                 EnsureCacheDir();
                 byte[] bytes = downloaded.EncodeToPNG();
                 File.WriteAllBytes(filePath, bytes);
-
-                Debug.Log($"[FrameCacheManager] Cached texture → {filePath} ({bytes.Length} bytes)");
+                // Debug.Log($"[FrameCacheManager] Cached texture → {filePath}");
             }
             catch (System.Exception ex)
             {
