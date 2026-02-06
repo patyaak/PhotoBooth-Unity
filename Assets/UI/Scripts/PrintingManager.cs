@@ -1,4 +1,5 @@
-﻿using UnityEngine;
+﻿using System;
+using UnityEngine;
 using System.Diagnostics;
 using System.IO;
 using System.Text;
@@ -12,15 +13,25 @@ public class PrintingManager : MonoBehaviour
 
     [Header("UI")]
     public TMP_Dropdown printerDropdown;
+    public TMP_Dropdown paperSizeDropdown; 
 
     [Header("Error Handling")]
     public GameObject printerErrorPanel;
     public TMP_Text printerErrorText;
+    public UnityEngine.UI.Button closeErrorButton; 
 
     [Header("Printer")]
     public string selectedPrinter;
+    public string selectedPaperSize = "4x6"; // Default
+    
+    [Header("Debug")]
+    public bool simulateReady = false; // Force Ready Status
 
     private const string PRINTER_PREF = "SELECTED_PRINTER";
+    private const string PAPER_SIZE_PREF = "SELECTED_PAPER_SIZE";
+
+    // SNOOZE LOGIC
+    private bool isErrorSnoozed = false;
 
     private void Awake()
     {
@@ -28,9 +39,16 @@ public class PrintingManager : MonoBehaviour
         else Destroy(gameObject);
     }
 
-    private void Start()
+    void Start()
     {
         PopulatePrinters();
+        PopulatePaperSizes();
+        
+        if (closeErrorButton != null)
+        {
+            closeErrorButton.onClick.AddListener(OnCloseErrorClicked);
+        }
+
         StartCoroutine(CheckPrinterStatusRoutine());
     }
 
@@ -65,6 +83,27 @@ public class PrintingManager : MonoBehaviour
         printerDropdown.onValueChanged.AddListener(OnPrinterChanged);
     }
 
+    void PopulatePaperSizes()
+    {
+        if (paperSizeDropdown == null) return;
+
+        paperSizeDropdown.ClearOptions();
+        // Common Epson SL-D1000/D500 Sizes
+        // Format: "Name" (Internal Match String)
+        List<string> sizes = new List<string>() { "4x6", "5x7", "6x8", "3.5x5", "4x4", "5x5", "6x6" };
+        
+        paperSizeDropdown.AddOptions(sizes);
+
+        if (PlayerPrefs.HasKey(PAPER_SIZE_PREF))
+        {
+            selectedPaperSize = PlayerPrefs.GetString(PAPER_SIZE_PREF);
+            int index = sizes.IndexOf(selectedPaperSize);
+            if (index >= 0) paperSizeDropdown.value = index;
+        }
+
+        paperSizeDropdown.onValueChanged.AddListener(OnPaperSizeChanged);
+    }
+
     void OnPrinterChanged(int index)
     {
         selectedPrinter = printerDropdown.options[index].text;
@@ -72,6 +111,14 @@ public class PrintingManager : MonoBehaviour
         PlayerPrefs.Save();
 
         UnityEngine.Debug.Log("🖨️ Selected Printer: " + selectedPrinter);
+    }
+
+    void OnPaperSizeChanged(int index)
+    {
+        selectedPaperSize = paperSizeDropdown.options[index].text;
+        PlayerPrefs.SetString(PAPER_SIZE_PREF, selectedPaperSize);
+        PlayerPrefs.Save();
+        UnityEngine.Debug.Log("📄 Selected Paper Size: " + selectedPaperSize);
     }
 
 
@@ -89,299 +136,177 @@ public class PrintingManager : MonoBehaviour
             return;
         }
 
+        // Detect if Portrait or Landscape based on Frame Type string
         bool isLandscape = frameType.ToLower().Contains("landscape");
 
-        string imagePath = Path.Combine(Application.persistentDataPath, "PHOTO_TO_PRINT.png");
-        File.WriteAllBytes(imagePath, image.EncodeToPNG());
+        UnityEngine.Debug.Log($"🖨️ Printing on {selectedPrinter} | Mode: {(isLandscape ? "Landscape" : "Portrait")} | Size: {selectedPaperSize}");
 
         // LOGGING START
-        LoggingManager.Instance?.LogPrinting(selectedPrinter, "started", "4x6", isLandscape);
+        LoggingManager.Instance?.LogPrinting(selectedPrinter, "started", selectedPaperSize, isLandscape);
 
-        RunPowerShellPrint(imagePath, isLandscape);
-    }
+        PrintDocument pd = new PrintDocument();
+        pd.PrinterSettings.PrinterName = selectedPrinter;
 
+        // --- PAPER SIZE DETECTION (General) ---
+        PaperSize targetPaper = null;
+        
+        // Normalize user selection to parts (e.g. "4x6" -> 4, 6)
+        string pSize = selectedPaperSize.Replace(" ", "").ToLower(); // "4x6"
 
-    void RunPowerShellPrint(string imagePath, bool landscape)
-    {
-        UnityEngine.Debug.Log($"PRINT TEST: 🖨️ Printing on {selectedPrinter} (4x6 Mode)");
-
-        string psScript = BuildPowerShellScript(
-            imagePath.Replace("\\", "\\\\"),
-            selectedPrinter,
-            landscape
-        );
-
-        string tempPs = Path.Combine(Application.persistentDataPath, "print.ps1");
-        File.WriteAllText(tempPs, psScript, Encoding.UTF8);
-
-        ProcessStartInfo psi = new ProcessStartInfo()
+        foreach (PaperSize size in pd.PrinterSettings.PaperSizes)
         {
-            FileName = "powershell.exe",
-            Arguments = $"-ExecutionPolicy Bypass -NoProfile -File \"{tempPs}\"",
-            CreateNoWindow = true,
-            UseShellExecute = false,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true
+            // Simple match: check if the driver's paper name contains "4x6" or "4 x 6" etc.
+            // Also check for metric "102x152" if user selected 4x6
+            string driverName = size.PaperName.Replace(" ", "").ToLower();
+
+            if (driverName.Contains(pSize)) 
+            {
+                targetPaper = size;
+                break;
+            }
+            // fallback Metric matches for common sizes
+            if (pSize == "4x6" && (driverName.Contains("102x152") || driverName.Contains("10x15"))) targetPaper = size;
+            else if (pSize == "5x7" && (driverName.Contains("127x178") || driverName.Contains("13x18"))) targetPaper = size;
+            else if (pSize == "6x8" && (driverName.Contains("152x203"))) targetPaper = size;
+        }
+
+        if (targetPaper != null)
+        {
+            pd.DefaultPageSettings.PaperSize = targetPaper;
+            UnityEngine.Debug.Log($"   [Paper] Found Driver Paper: {targetPaper.PaperName}");
+        }
+        else
+        {
+            UnityEngine.Debug.LogWarning($"   [Paper] '{selectedPaperSize}' not found in driver. Using default: {pd.DefaultPageSettings.PaperSize.PaperName}");
+            // Optional: Show Warning UI to user?
+        }
+
+        // --- ORIENTATION & MARGINS ---
+        pd.DefaultPageSettings.Landscape = isLandscape;
+        pd.DefaultPageSettings.Margins = new Margins(0, 0, 0, 0); // Hardware margins usually apply anyway, but we set 0 to be safe
+        pd.OriginAtMargins = false; // We want to print on the physical page
+
+        // --- PRINT EVENT ---
+        pd.PrintPage += (sender, e) =>
+        {
+            // High Quality
+            e.Graphics.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+            e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.HighQuality;
+            e.Graphics.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
+            e.Graphics.CompositingQuality = System.Drawing.Drawing2D.CompositingQuality.HighQuality;
+
+            // Get Printable Area
+            // Note: VisibleClipBounds matches the printable area inside margins.
+            // Since we set margins to 0, this should match the paper size minus hardware limits.
+            System.Drawing.RectangleF bounds = e.Graphics.VisibleClipBounds;
+
+            // Convert Texture2D to System.Drawing.Image (Memory Stream)
+            byte[] bytes = image.EncodeToPNG();
+            using (MemoryStream ms = new MemoryStream(bytes))
+            using (System.Drawing.Image img = System.Drawing.Image.FromStream(ms))
+            {
+                // Fit to Page Logic (Uniform Fill or Fit)
+                // We typically want "Crop to Fill" if aspect ratios differ slightly, 
+                // OR "Shrink to Fit" if we want to show everything.
+                // Replicating previous logic: "Shrink to Fit" (Uniform)
+                
+                float scaleX = bounds.Width / img.Width;
+                float scaleY = bounds.Height / img.Height;
+                float scale = Math.Min(scaleX, scaleY);
+
+                // If you want to FILL the page (and crop excess), use Math.Max instead.
+                // For Photo Booths with borders, usually we want EXACT fit.
+                // Let's force STRETCH if the aspect ratio is extremely close (borderless).
+                
+                float targetW = img.Width * scale;
+                float targetH = img.Height * scale;
+
+                float posX = bounds.Left + (bounds.Width - targetW) / 2;
+                float posY = bounds.Top + (bounds.Height - targetH) / 2;
+
+                e.Graphics.DrawImage(img, posX, posY, targetW, targetH);
+            }
+            e.HasMorePages = false;
         };
 
-        Process process = new Process();
-        process.StartInfo = psi;
-        
-        process.OutputDataReceived += (sender, e) => { if (!string.IsNullOrEmpty(e.Data)) UnityEngine.Debug.Log($"PRINT TEST: [PS LOG] {e.Data}"); };
-        process.ErrorDataReceived += (sender, e) => { if (!string.IsNullOrEmpty(e.Data)) UnityEngine.Debug.LogError($"PRINT TEST: [PS ERR] {e.Data}"); };
-
-        process.Start();
-        process.BeginOutputReadLine();
-        process.BeginErrorReadLine();
+        try
+        {
+            pd.Print();
+            LoggingManager.Instance?.LogPrinting(selectedPrinter, "success", "4x6", isLandscape);
+        }
+        catch (System.Exception ex)
+        {
+            UnityEngine.Debug.LogError($"Print Failed: {ex.Message}");
+            LoggingManager.Instance?.LogPrinting(selectedPrinter, "failed", "4x6", isLandscape, ex.Message);
+            ShowError("印刷エラー: " + ex.Message);
+        }
     }
 
-    string BuildPowerShellScript(string imagePath, string printer, bool landscape)
+    // SNOOZE FUNCTION
+    void OnCloseErrorClicked()
     {
-        return $@"
-Add-Type -AssemblyName System.Drawing
-# System.Drawing.Printing is likely in System.Drawing, so we skip explicit Add-Type for it if it fails
+        StartCoroutine(SnoozeErrorRoutine());
+    }
 
-$image = [System.Drawing.Image]::FromFile('{imagePath}')
-
-$pd = New-Object System.Drawing.Printing.PrintDocument
-$pd.PrinterSettings.PrinterName = '{printer}'
-
-# --- FIND 4x6 or 102x152 PAPER ---
-$targetPaper = $null
-foreach ($paperSize in $pd.PrinterSettings.PaperSizes) {{
-    # Match '4 x 6', '4x6', '102 x 152' or by dimensions (allow small tolerance)
-    # 400x600 (1/100 inch) is standard 4x6. 
-    if (($paperSize.PaperName -match '4\s*x\s*6') -or 
-        ($paperSize.PaperName -match '102\s*x\s*152') -or 
-        ($paperSize.Width -eq 400 -and $paperSize.Height -eq 600)) {{
-        $targetPaper = $paperSize
-        break
-    }}
-}}
-
-if ($targetPaper) {{
-    $pd.DefaultPageSettings.PaperSize = $targetPaper
-    Write-Host ""PRINT TEST: DETECTED PAPER: $($targetPaper.PaperName) ($($targetPaper.Width) x $($targetPaper.Height))""
-}}
-else {{
-    Write-Host ""PRINT TEST: WARNING: Specific paper size not found, using default: $($pd.DefaultPageSettings.PaperSize.PaperName)""
-}}
-
-$pd.DefaultPageSettings.Margins = New-Object System.Drawing.Printing.Margins(0,0,0,0)
-$pd.OriginAtMargins = $false # Use physical page
-$pd.DefaultPageSettings.Landscape = {(landscape ? "$true" : "$false")}
-Write-Host ""PRINT TEST: ORIENTATION: Landscape=$($pd.DefaultPageSettings.Landscape)""
-
-$pd.add_PrintPage({{
-    param($sender, $e)
-
-    $e.PageSettings.Margins = New-Object System.Drawing.Printing.Margins(0,0,0,0)
-    # REMOVED: PageUnit = Pixel caused scaling issues (treated 1/100 inch units as pixels)
-    # Standard is Display (approx 1/100 inch for PrintDocument), matching PaperSize units.
-    
-    $e.Graphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
-
-    # Printable area bounds (accounts for hardware margins)
-    $g = $e.Graphics
-    $bounds = $g.VisibleClipBounds
-
-    # Image Dimensions
-    $imgW = $image.Width
-    $imgH = $image.Height
-
-    # === SHRINK TO FIT LOGIC (Uniform Scale) ===
-    # Calculate scale factor to fit ENTIRE image into printable area
-    $scaleX = $bounds.Width / $imgW
-    $scaleY = $bounds.Height / $imgH
-    
-    # Use the smaller scale to ensure it fits (Shrink to Fit)
-    $scale = [Math]::Min($scaleX, $scaleY)
-    
-    # New Dimensions
-    $targetW = [Math]::Floor($imgW * $scale)
-    $targetH = [Math]::Floor($imgH * $scale)
-
-    # Center Position relative to the printable area
-    # Note: VisibleClipBounds.X/Y are the offsets from the physical edge
-    $posX = [Math]::Floor($bounds.Left + ($bounds.Width - $targetW) / 2)
-    $posY = [Math]::Floor($bounds.Top + ($bounds.Height - $targetH) / 2)
-
-    Write-Host ""PRINT TEST: PRINTING: Image($imgW x $imgH) -> Page($($bounds.Width) x $($bounds.Height))""
-    Write-Host ""PRINT TEST: SCALING: Scale=$scale TargetSize=($targetW x $targetH) Position=($posX, $posY)""
-    
-    # Draw image centered
-    $e.Graphics.DrawImage($image, $posX, $posY, $targetW, $targetH)
-
-    $e.HasMorePages = $false
-}})
-
-try {{
-    $pd.Print()
-    Write-Host ""PRINT TEST: PRINT JOB SENT SUCCESSFULLY""
-}}
-catch {{
-    Write-Error $_.Exception.Message
-}}
-finally {{
-    $image.Dispose()
-}}
-";
+    System.Collections.IEnumerator SnoozeErrorRoutine()
+    {
+        isErrorSnoozed = true;
+        HideError(); // Hide immediately
+        
+        yield return new WaitForSeconds(2f);  //error snoozed for 2 seconds
+        isErrorSnoozed = false;
+        
+        // Status check loop effectively picks this up on next tick
     }
 
     System.Collections.IEnumerator CheckPrinterStatusRoutine()
     {
+        WaitForSeconds wait = new WaitForSeconds(3f);
         while (true)
         {
-            if (!string.IsNullOrEmpty(selectedPrinter))
+            if (!string.IsNullOrEmpty(selectedPrinter) && !isErrorSnoozed) // Check flag
             {
-                CheckPrinterStatus();
+                CheckStatusNative();
             }
-            yield return new WaitForSeconds(5f); // Check every 5 seconds
+            yield return wait;
         }
     }
 
-    void CheckPrinterStatus()
+    void CheckStatusNative()
     {
-        // We use PowerShell/WMI to get detailed status without an SDK
-        string script = $@"
-$p = Get-WmiObject Win32_Printer -Filter ""Name='{selectedPrinter}'""
-if ($p) {{
-    Write-Output ""STATUS|$($p.PrinterStatus)|$($p.DetectedErrorState)|$($p.WorkOffline)""
-}} else {{
-    Write-Output ""NOTFOUND""
-}}
-";
-        StartCoroutine(RunStatusScript(script));
-    }
-
-    System.Collections.IEnumerator RunStatusScript(string script)
-    {
-        string tempPs = Path.Combine(Application.persistentDataPath, "status_check.ps1");
-        File.WriteAllText(tempPs, script, Encoding.UTF8);
-
-        ProcessStartInfo psi = new ProcessStartInfo()
+        // DEBUG SIMULATION
+        if (simulateReady)
         {
-            FileName = "powershell.exe",
-            Arguments = $"-ExecutionPolicy Bypass -NoProfile -File \"{tempPs}\"",
-            CreateNoWindow = true,
-            UseShellExecute = false,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true
-        };
-
-        bool pError = false;
-        string pOutput = "";
-
-        // Run process in a separate thread to avoid freezing Unity main thread
-        bool isDone = false;
-        
-        System.Threading.Thread thread = new System.Threading.Thread(() => {
-            try {
-                using (Process process = Process.Start(psi))
-                {
-                    pOutput = process.StandardOutput.ReadToEnd();
-                    process.WaitForExit();
-                }
-            } catch { pError = true; }
-            isDone = true;
-        });
-        thread.Start();
-
-        while (!isDone) yield return null;
-
-        if (!pError && !string.IsNullOrEmpty(pOutput))
-        {
-            // Check for success message inside normal output if using Write-Host
-            if (pOutput.Contains("PRINT JOB SENT SUCCESSFULLY"))
-            {
-                 LoggingManager.Instance?.LogPrinting(selectedPrinter, "success", "4x6", false); // We don't have isLandscape easily here, default false or refactor
-            }
-
-            ParseStatus(pOutput.Trim());
-        }
-        else if (pError) // Process execution error
-        {
-             LoggingManager.Instance?.LogPrinting(selectedPrinter, "failed", "4x6", false, "PowerShell execution failed");
-        }
-    }
-
-    void ParseStatus(string output)
-    {
-        if (printerErrorPanel == null) return;
-
-        if (output.Contains("NOTFOUND"))
-        {
-            ShowError("プリンターが見つかりません"); // Printer not found
+            HideError();
             return;
         }
 
-        if (output.StartsWith("STATUS|"))
-        {
-            string[] parts = output.Split('|');
-            if (parts.Length >= 4)
-            {
-                int status = int.Parse(parts[1]); // 3=Idle, 4=Printing, 2=Error
-                int errorState = int.Parse(parts[2]); 
-                bool offline = bool.Parse(parts[3]);
+        // Use our Helper to get status string
+        string status = NativePrinterHelper.GetPrinterStatus(selectedPrinter);
 
-                // Priority Checks
-                if (offline)
-                {
-                    ShowError("プリンターが接続されていません"); // Not connected / Offline
-                }
-                else if (errorState == 4)
-                {
-                    ShowError("用紙切れです"); // Out of Paper
-                }
-                else if (errorState == 5)
-                {
-                    ShowError("インク不足です"); // Low Toner/Ink
-                }
-                else if (errorState == 12)
-                {
-                    ShowError("カバーが開いています"); // Door Open
-                }
-                else if (errorState == 13)
-                {
-                    ShowError("紙詰まりです"); // Paper Jam
-                }
-                else if (status == 2 || (status != 3 && status != 4)) // 2 is Error, 3 is Idle, 4 is Printing
-                {
-                    // Generic Error if status is Error but no specific ErrorState
-                    if (errorState != 0)
-                        ShowError($"プリンターエラー: {GetErrorStateJP(errorState)}");
-                    else
-                        ShowError("プリンター準備中またはエラー"); // Warning/Error
-                }
-                else
-                {
-                    // ALL GOOD
-                    HideError();
-                }
-            }
-        }
-    }
-
-    string GetErrorStateJP(int code)
-    {
-        switch(code)
+        // Parse Standard Strings
+        if (status == "Ready" || status == "Status_Printing" || status == "Status_Busy" || status == "Status_Processing")
         {
-            case 0: return "正常";
-            case 1: return "その他";
-            case 2: return "不明";
-            case 3: return "アイドル";
-            case 4: return "用紙切れ";
-            case 5: return "トナー不足";
-            case 6: return "印刷中";
-            case 12: return "ドア開放";
-            case 13: return "紙詰まり";
-            case 14: return "オフライン";
-            default: return $"コード {code}";
+            HideError();
         }
+        else if (status.Contains("PAPER_JAM")) ShowError("紙詰まりです\n" + status);
+        else if (status.Contains("PAPER_OUT")) ShowError("用紙切れです\n" + status);
+        else if (status.Contains("DOOR_OPEN")) ShowError("カバーが開いています\n" + status);
+        else if (status.Contains("NO_TONER")) ShowError("インク切れです\n" + status);
+        else if (status.Contains("TONER_LOW")) ShowError("インク残量低下\n" + status);
+        else if (status.Contains("OFFLINE")) ShowError("プリンターが接続されていません\n" + status); // Offline
+        else if (status.Contains("NOTFOUND")) ShowError("プリンターが見つかりません");
+        else if (status.Contains("ERROR")) ShowError("プリンターエラー\n" + status); // Generic
+        
+        // Debug
+        // UnityEngine.Debug.Log($"[Status Check] {selectedPrinter} -> {status}");
     }
 
     void ShowError(string msg)
     {
+        // Don't show if snoozed (double heck)
+        if (isErrorSnoozed) return;
+
         if (printerErrorPanel != null)
         {
             printerErrorPanel.SetActive(true);
