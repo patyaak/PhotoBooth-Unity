@@ -9,6 +9,7 @@ using Newtonsoft.Json.Linq;
 using TMPro;
 using UnityEngine;
 using UnityEngine.Networking;
+using UnityEngine.Playables;
 using UnityEngine.UI;
 using ZXing;
 
@@ -254,6 +255,10 @@ public class PaymentManager : MonoBehaviour
             }
 
             PaymentInitiateResponse res;
+            
+            
+            Debug.Log($"PaymentData: {request.downloadHandler.text}");
+
             try { res = JsonConvert.DeserializeObject<PaymentInitiateResponse>(request.downloadHandler.text); }
             catch (Exception e) { OnPaymentFailed("Failed to parse payment response: " + e.Message); return; }
 
@@ -501,6 +506,7 @@ public class PaymentManager : MonoBehaviour
 
     public void InitiateFramePaymentForDecide(string boothId, FrameItem selectedFrame, string price, string frameType = "default")
     {
+        
         if (string.IsNullOrEmpty(boothId) || selectedFrame == null) return;
 
         currentFrameId = selectedFrame.frameData.frame_id;

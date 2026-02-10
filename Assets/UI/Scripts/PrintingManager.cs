@@ -6,6 +6,7 @@ using System.Text;
 using System.Collections.Generic;
 using System.Drawing.Printing;
 using TMPro;
+using UnityEngine.UI;
 
 public class PrintingManager : MonoBehaviour
 {
@@ -18,7 +19,8 @@ public class PrintingManager : MonoBehaviour
     [Header("Error Handling")]
     public GameObject printerErrorPanel;
     public TMP_Text printerErrorText;
-    public UnityEngine.UI.Button closeErrorButton; 
+    public Button closeErrorButton; 
+    public Button errorMessageButton; // Hidden button on error message 
 
     [Header("Printer")]
     public string selectedPrinter;
@@ -32,6 +34,7 @@ public class PrintingManager : MonoBehaviour
 
     // SNOOZE LOGIC
     private bool isErrorSnoozed = false;
+    private int closeButtonTapCount = 0; // Secret close counter
 
     private void Awake()
     {
@@ -47,6 +50,10 @@ public class PrintingManager : MonoBehaviour
         if (closeErrorButton != null)
         {
             closeErrorButton.onClick.AddListener(OnCloseErrorClicked);
+        }
+        if (errorMessageButton != null)
+        {
+            errorMessageButton.onClick.AddListener(OnErrorMessageClicked);
         }
 
         StartCoroutine(CheckPrinterStatusRoutine());
@@ -178,7 +185,7 @@ public class PrintingManager : MonoBehaviour
         else
         {
             UnityEngine.Debug.LogWarning($"   [Paper] '{selectedPaperSize}' not found in driver. Using default: {pd.DefaultPageSettings.PaperSize.PaperName}");
-            // Optional: Show Warning UI to user?
+            
         }
 
         // --- ORIENTATION & MARGINS ---
@@ -245,7 +252,56 @@ public class PrintingManager : MonoBehaviour
     // SNOOZE FUNCTION
     void OnCloseErrorClicked()
     {
-        StartCoroutine(SnoozeErrorRoutine());
+        // Check if we are in an active session (Frame Selection or Payment)
+        bool isSessionActive = false;
+        if (LoginManager.Instance != null)
+        {
+            if ((LoginManager.Instance.frameSelectionPanel != null && LoginManager.Instance.frameSelectionPanel.activeSelf) ||
+                (LoginManager.Instance.paymentPanel != null && LoginManager.Instance.paymentPanel.activeSelf))
+            {
+                isSessionActive = true;
+            }
+        }
+
+        if (isSessionActive)
+        {
+            // Session Active: Invisible Close Button clicked -> Increment Count
+            closeButtonTapCount++;
+        }
+        else
+        {
+            // Login Screen: Visible Close Button clicked -> Snooze immediately
+            StartCoroutine(SnoozeErrorRoutine());
+            closeButtonTapCount = 0;
+        }
+    }
+
+    void OnErrorMessageClicked()
+    {
+        // Secret Exit Logic (Only relevant when Session is Active)
+        bool isSessionActive = false;
+        if (LoginManager.Instance != null)
+        {
+            if ((LoginManager.Instance.frameSelectionPanel != null && LoginManager.Instance.frameSelectionPanel.activeSelf) ||
+                (LoginManager.Instance.paymentPanel != null && LoginManager.Instance.paymentPanel.activeSelf))
+            {
+                isSessionActive = true;
+            }
+        }
+
+        if (isSessionActive)
+        {
+            if (closeButtonTapCount >= 5)
+            {
+                // Secret Exit: Redirect to Login, Keep Error Open
+                if (LoginManager.Instance != null)
+                {
+                    LoginManager.Instance.ResetToLoginPanel();
+                }
+                closeButtonTapCount = 0;
+                UnityEngine.Debug.Log("Secret Exit Triggered -> Login Panel");
+            }
+        }
     }
 
     System.Collections.IEnumerator SnoozeErrorRoutine()
@@ -256,7 +312,7 @@ public class PrintingManager : MonoBehaviour
         yield return new WaitForSeconds(2f);  //error snoozed for 2 seconds
         isErrorSnoozed = false;
         
-        // Status check loop effectively picks this up on next tick
+        
     }
 
     System.Collections.IEnumerator CheckPrinterStatusRoutine()
@@ -280,8 +336,6 @@ public class PrintingManager : MonoBehaviour
             HideError();
             return;
         }
-
-        // Use our Helper to get status string
         string status = NativePrinterHelper.GetPrinterStatus(selectedPrinter);
 
         // Parse Standard Strings
@@ -289,28 +343,48 @@ public class PrintingManager : MonoBehaviour
         {
             HideError();
         }
-        else if (status.Contains("PAPER_JAM")) ShowError("紙詰まりです\n" + status);
-        else if (status.Contains("PAPER_OUT")) ShowError("用紙切れです\n" + status);
-        else if (status.Contains("DOOR_OPEN")) ShowError("カバーが開いています\n" + status);
-        else if (status.Contains("NO_TONER")) ShowError("インク切れです\n" + status);
-        else if (status.Contains("TONER_LOW")) ShowError("インク残量低下\n" + status);
-        else if (status.Contains("OFFLINE")) ShowError("プリンターが接続されていません\n" + status); // Offline
+        else if (status.Contains("PAPER_JAM")) ShowError("紙詰まりです");
+        else if (status.Contains("PAPER_OUT")) ShowError("用紙切れです");
+        else if (status.Contains("DOOR_OPEN")) ShowError("カバーが開いています");
+        else if (status.Contains("NO_TONER")) ShowError("インク切れです");
+        else if (status.Contains("TONER_LOW")) ShowError("インク残量低下");
+        else if (status.Contains("OFFLINE")) ShowError("プリンターが接続されていません"); // Offline
         else if (status.Contains("NOTFOUND")) ShowError("プリンターが見つかりません");
-        else if (status.Contains("ERROR")) ShowError("プリンターエラー\n" + status); // Generic
+        else if (status.Contains("ERROR")) ShowError("プリンターエラー"); // Generic
         
-        // Debug
-        // UnityEngine.Debug.Log($"[Status Check] {selectedPrinter} -> {status}");
+      
     }
 
     void ShowError(string msg)
     {
-        // Don't show if snoozed (double heck)
+
         if (isErrorSnoozed) return;
 
         if (printerErrorPanel != null)
         {
             printerErrorPanel.SetActive(true);
             if (printerErrorText != null) printerErrorText.text = msg;
+
+        
+            bool isSessionActive = false;
+            if (LoginManager.Instance != null)
+            {
+                if ((LoginManager.Instance.frameSelectionPanel != null && LoginManager.Instance.frameSelectionPanel.activeSelf) ||
+                    (LoginManager.Instance.paymentPanel != null && LoginManager.Instance.paymentPanel.activeSelf))
+                {
+                    isSessionActive = true;
+                }
+            }
+
+            if (closeErrorButton != null)
+            {
+                var img = closeErrorButton.GetComponent<Image>();
+                if (img != null)
+                {
+                    float alpha = isSessionActive ? 0f : 1f;
+                    img.color = new Color(img.color.r, img.color.g, img.color.b, alpha);
+                }
+            }
         }
     }
 
