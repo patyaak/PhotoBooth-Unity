@@ -315,9 +315,13 @@ public class PrintingManager : MonoBehaviour
         
     }
 
+    // NEW: Expose printing status
+    public bool IsPrinting { get; private set; }
+
     System.Collections.IEnumerator CheckPrinterStatusRoutine()
     {
-        WaitForSeconds wait = new WaitForSeconds(3f);
+        // Increase polling rate to catch short print jobs (1s instead of 3s)
+        WaitForSeconds wait = new WaitForSeconds(1.0f);
         while (true)
         {
             if (!string.IsNullOrEmpty(selectedPrinter) && !isErrorSnoozed) // Check flag
@@ -334,12 +338,18 @@ public class PrintingManager : MonoBehaviour
         if (simulateReady)
         {
             HideError();
+            IsPrinting = false;
             return;
         }
+
         string status = NativePrinterHelper.GetPrinterStatus(selectedPrinter);
 
+        // Update IsPrinting flag
+        // "Status_Printing" and "Status_Busy" are returned by NativePrinterHelper when jobs > 0 or status bits are set
+        IsPrinting = (status == "Status_Printing" || status == "Status_Busy" || status == "Status_Processing");
+
         // Parse Standard Strings
-        if (status == "Ready" || status == "Status_Printing" || status == "Status_Busy" || status == "Status_Processing")
+        if (status == "Ready" || IsPrinting)
         {
             HideError();
         }

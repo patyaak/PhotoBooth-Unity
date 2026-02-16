@@ -950,9 +950,18 @@ public class PhotoShootingManager : MonoBehaviour
 
                 PrintingManager.Instance.PrintFinalImage(finalComposedImageForPrint, frameType);
                 
-                // Simulate printing time
-                yield return new WaitForSeconds(3f);
-                
+                // --- NEW WAITING LOGIC ---
+                // 1. Wait a moment for the print job to be registered by the spooler (important!)
+                yield return new WaitForSeconds(2.0f);
+
+                // 2. Wait while PrintingManager reports "IsPrinting"
+                // This covers "Status_Printing" or "Status_Busy" returned by the driver
+                while (PrintingManager.Instance.IsPrinting)
+                {
+                    Debug.Log("🖨️ Printer is busy... waiting.");
+                    yield return new WaitForSeconds(0.5f);
+                }
+
                 // Show Done
                 if (printingInProgress != null) printingInProgress.SetActive(false);
                 if (printingDone != null) printingDone.SetActive(true);
