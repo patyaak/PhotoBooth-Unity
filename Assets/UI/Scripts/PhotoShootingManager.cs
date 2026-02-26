@@ -967,6 +967,27 @@ public class PhotoShootingManager : MonoBehaviour
                 if (printingDone != null) printingDone.SetActive(true);
                 
                 Debug.Log("✅ Printing workflow completed!");
+
+                // --- REPORT STATUS TO BACKEND ---
+                string lastStatus = PrintingManager.Instance.LastStatus;
+                string orderId = PaymentManager.Instance?.currentOrderId ?? "";
+                string paymentId = PaymentManager.Instance?.currentPaymentId ?? "";
+                
+                // Determine if successful (Ready means job completed and no errors detected)
+                bool isSuccess = (lastStatus == "Ready");
+                string condition = "success";
+
+                if (!isSuccess)
+                {
+                    if (lastStatus.Contains("PAPER_JAM")) condition = "paper jam";
+                    else if (lastStatus.Contains("PAPER_OUT")) condition = "no print out";
+                    else if (lastStatus.Contains("OFFLINE")) condition = "printer offline";
+                    else condition = lastStatus; // Fallback to raw status
+                }
+
+                Debug.Log($"📊 Reporting Print Status: {isSuccess} | Reason: {condition}");
+                yield return StartCoroutine(PrintingManager.Instance.SendPrintStatusToBackend(orderId, paymentId, isSuccess, condition));
+                // --------------------------------
                 
                 // Wait for user to see "Done"
                 yield return new WaitForSeconds(4f);

@@ -38,11 +38,12 @@ public class PaymentManager : MonoBehaviour
     public string currentFrameId;
 
     public bool paymentActive = false;
+    public string currentOrderId;
+    public string currentPaymentId;
 
     public PaymentType currentPaymentType { get; private set; } = PaymentType.None;
     private int pendingGachaButtonIndex = -1;
     private FrameItem frameAfterPayment;
-    public string currentOrderId;
 
     private WebSocket ws;
     private bool isWebSocketConnected = false;
@@ -269,7 +270,8 @@ public class PaymentManager : MonoBehaviour
             }
 
             currentOrderId = res.order_id;
-            Debug.Log($"✅ Order ID received: {currentOrderId}");
+            currentPaymentId = res.payment_id;
+            Debug.Log($"✅ Order ID received: {currentOrderId} | Payment ID: {currentPaymentId}");
 
             if (paymentActive && !string.IsNullOrEmpty(res.start_url))
             {
@@ -500,6 +502,7 @@ public class PaymentManager : MonoBehaviour
         currentPaymentType = PaymentType.None;
         currentFrameType = "default";
         currentFrameId = null;
+        currentPaymentId = null;
 
         Debug.Log($"ℹ️ Payment state reset (order_id preserved: {currentOrderId})");
     }

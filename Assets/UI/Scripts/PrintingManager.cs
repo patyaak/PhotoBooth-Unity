@@ -3,7 +3,9 @@ using UnityEngine;
 using System.Diagnostics;
 using System.IO;
 using System.Text;
+using System.Collections;
 using System.Collections.Generic;
+using Newtonsoft.Json;
 using System.Drawing.Printing;
 using TMPro;
 using UnityEngine.UI;
@@ -26,8 +28,10 @@ public class PrintingManager : MonoBehaviour
     public string selectedPrinter;
     public string selectedPaperSize = "4x6"; // Default
     
-    [Header("Debug")]
-    public bool simulateReady = false; // Force Ready Status
+
+    public enum PrinterSimulationMode { Disable, SimulateSuccess, SimulatePaperJam, SimulatePaperOut, SimulateOffline }
+    public PrinterSimulationMode simulationMode = PrinterSimulationMode.Disable;
+    public bool simulateReady = false; // Legacy - will be replaced by simulationMode
 
     private const string PRINTER_PREF = "SELECTED_PRINTER";
     private const string PAPER_SIZE_PREF = "SELECTED_PAPER_SIZE";
@@ -317,8 +321,9 @@ public class PrintingManager : MonoBehaviour
 
     // NEW: Expose printing status
     public bool IsPrinting { get; private set; }
+    public string LastStatus { get; private set; } = "Unknown";
 
-    System.Collections.IEnumerator CheckPrinterStatusRoutine()
+    IEnumerator CheckPrinterStatusRoutine()
     {
         // Increase polling rate to catch short print jobs (1s instead of 3s)
         WaitForSeconds wait = new WaitForSeconds(1.0f);
@@ -334,19 +339,40 @@ public class PrintingManager : MonoBehaviour
 
     void CheckStatusNative()
     {
-        // DEBUG SIMULATION
-        if (simulateReady)
-        {
-            HideError();
-            IsPrinting = false;
-            return;
-        }
+        string status;
 
-        string status = NativePrinterHelper.GetPrinterStatus(selectedPrinter);
+        // --- SIMULATION LOGIC ---
+        if (simulationMode != PrinterSimulationMode.Disable)
+        {
+            switch (simulationMode)
+            {
+                case PrinterSimulationMode.SimulateSuccess: status = "Ready"; break;
+                case PrinterSimulationMode.SimulatePaperJam: status = "ERROR_PAPER_JAM (Simulated)"; break;
+                case PrinterSimulationMode.SimulatePaperOut: status = "ERROR_PAPER_OUT (Simulated)"; break;
+                case PrinterSimulationMode.SimulateOffline: status = "ERROR_OFFLINE (Simulated)"; break;
+                default: status = "Ready"; break;
+            }
+            IsPrinting = false; // In simulation, we assume job finishes instantly
+        }
+        else if (simulateReady)
+        {
+            status = "Ready";
+            IsPrinting = false;
+        }
+        else
+        {
+            status = NativePrinterHelper.GetPrinterStatus(selectedPrinter);
+        }
+        // ------------------------
+
+        LastStatus = status;
 
         // Update IsPrinting flag
-        // "Status_Printing" and "Status_Busy" are returned by NativePrinterHelper when jobs > 0 or status bits are set
-        IsPrinting = (status == "Status_Printing" || status == "Status_Busy" || status == "Status_Processing");
+        if (simulationMode == PrinterSimulationMode.Disable && !simulateReady)
+        {
+            // "Status_Printing" and "Status_Busy" are returned by NativePrinterHelper when jobs > 0 or status bits are set
+            IsPrinting = (status == "Status_Printing" || status == "Status_Busy" || status == "Status_Processing");
+        }
 
         // Parse Standard Strings
         if (status == "Ready" || IsPrinting)
@@ -404,6 +430,36 @@ public class PrintingManager : MonoBehaviour
         {
             printerErrorPanel.SetActive(false);
         }
+    }
+
+    public IEnumerator SendPrintStatusToBackend(string orderId, string paymentId, bool printingStatus, string condition)
+    {
+        if (string.IsNullOrEmpty(orderId)) yield break;
+
+        string url = $"{API.BaseURL}/api/payment/print-status";
+        
+        var payload = new
+        {
+            order_id = orderId,
+            payment_id = paymentId,
+            printingStatus = printingStatus,
+            condition = condition
+        };
+
+        string jsonPayload = JsonConvert.SerializeObject(payload);
+        UnityEngine.Debug.Log($"[PrintingManager] Sending Print Status: {jsonPayload}");
+
+        yield return LoggedWebRequest.Post(url, jsonPayload, (request) =>
+        {
+            if (request.result == UnityEngine.Networking.UnityWebRequest.Result.Success)
+            {
+                UnityEngine.Debug.Log("✅ Print status reported successfully!");
+            }
+            else
+            {
+                UnityEngine.Debug.LogError($"❌ Failed to report print status: {request.error}");
+            }
+        });
     }
 
 }
