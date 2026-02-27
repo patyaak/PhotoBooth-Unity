@@ -985,8 +985,9 @@ public class PhotoShootingManager : MonoBehaviour
                     else condition = lastStatus; // Fallback to raw status
                 }
 
-                Debug.Log($"📊 Reporting Print Status: {isSuccess} | Reason: {condition}");
-                yield return StartCoroutine(PrintingManager.Instance.SendPrintStatusToBackend(orderId, paymentId, isSuccess, condition));
+                Debug.Log($"📊 Reporting Final Print Status: {isSuccess} | Reason: {condition}");
+                yield return StartCoroutine(PrintingManager.Instance.SendPrintStatusToBackend(orderId, isSuccess, condition));
+              //  yield return StartCoroutine(PrintingManager.Instance.SendPrintStatusToBackend(orderId, paymentId, isSuccess, condition));
                 // --------------------------------
                 
                 // Wait for user to see "Done"
@@ -1279,7 +1280,7 @@ public class PhotoShootingManager : MonoBehaviour
         return tex;
     }
 
-    private void ResetToLoginScreen()
+    public void ResetToLoginScreen()
     {
         Debug.Log("🔄 Resetting to login screen for next customer...");
 

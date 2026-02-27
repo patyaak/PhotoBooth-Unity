@@ -14,4 +14,4 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   environment: 0
   stagingBaseURL: https://photo-stg-api.chvps3.aozora-okinawa.com
-  productionBaseURL: https://photo-api.yourdomain.com
+  productionBaseURL: 

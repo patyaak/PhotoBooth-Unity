@@ -39,6 +39,7 @@ public class PrintingManager : MonoBehaviour
     // SNOOZE LOGIC
     private bool isErrorSnoozed = false;
     private int closeButtonTapCount = 0; // Secret close counter
+    private string lastReportedErrorOrderId = ""; // NEW: Avoid duplicate error reports
 
     private void Awake()
     {
@@ -256,56 +257,23 @@ public class PrintingManager : MonoBehaviour
     // SNOOZE FUNCTION
     void OnCloseErrorClicked()
     {
-        // Check if we are in an active session (Frame Selection or Payment)
-        bool isSessionActive = false;
-        if (LoginManager.Instance != null)
+        if (closeButtonTapCount >= 5)
         {
-            if ((LoginManager.Instance.frameSelectionPanel != null && LoginManager.Instance.frameSelectionPanel.activeSelf) ||
-                (LoginManager.Instance.paymentPanel != null && LoginManager.Instance.paymentPanel.activeSelf))
-            {
-                isSessionActive = true;
-            }
-        }
-
-        if (isSessionActive)
-        {
-            // Session Active: Invisible Close Button clicked -> Increment Count
-            closeButtonTapCount++;
+            // Unlocked: Snooze immediately
+            StartCoroutine(SnoozeErrorRoutine());
+            closeButtonTapCount = 0;
+            UnityEngine.Debug.Log("🔒 Error panel closed via secret unlock.");
         }
         else
         {
-            // Login Screen: Visible Close Button clicked -> Snooze immediately
-            StartCoroutine(SnoozeErrorRoutine());
-            closeButtonTapCount = 0;
+            UnityEngine.Debug.Log($"🚫 Close button locked. Need {5 - closeButtonTapCount} more taps on error message.");
         }
     }
 
     void OnErrorMessageClicked()
     {
-        // Secret Exit Logic (Only relevant when Session is Active)
-        bool isSessionActive = false;
-        if (LoginManager.Instance != null)
-        {
-            if ((LoginManager.Instance.frameSelectionPanel != null && LoginManager.Instance.frameSelectionPanel.activeSelf) ||
-                (LoginManager.Instance.paymentPanel != null && LoginManager.Instance.paymentPanel.activeSelf))
-            {
-                isSessionActive = true;
-            }
-        }
-
-        if (isSessionActive)
-        {
-            if (closeButtonTapCount >= 5)
-            {
-                // Secret Exit: Redirect to Login, Keep Error Open
-                if (LoginManager.Instance != null)
-                {
-                    LoginManager.Instance.ResetToLoginPanel();
-                }
-                closeButtonTapCount = 0;
-                UnityEngine.Debug.Log("Secret Exit Triggered -> Login Panel");
-            }
-        }
+        closeButtonTapCount++;
+        UnityEngine.Debug.Log($"👆 Error message tapped {closeButtonTapCount}/5 times.");
     }
 
     System.Collections.IEnumerator SnoozeErrorRoutine()
@@ -401,6 +369,31 @@ public class PrintingManager : MonoBehaviour
             printerErrorPanel.SetActive(true);
             if (printerErrorText != null) printerErrorText.text = msg;
 
+            // NEW: Immediate reporting if session is active
+            string currentOrderId = PaymentManager.Instance?.currentOrderId;
+            if (!string.IsNullOrEmpty(currentOrderId) && lastReportedErrorOrderId != currentOrderId)
+            {
+               // string pId = PaymentManager.Instance?.currentPaymentId ?? "";
+                string condition = msg; 
+                
+                // Map the Japanese message back to English conditions if possible, or use the raw message
+                if (msg.Contains("紙詰まり")) condition = "paper jam";
+                else if (msg.Contains("用紙切れ")) condition = "no print out";
+                else if (msg.Contains("プリンターが接続")) condition = "printer offline";
+
+                lastReportedErrorOrderId = currentOrderId;
+                StartCoroutine(SendPrintStatusToBackend(currentOrderId,  false, condition));
+               // StartCoroutine(SendPrintStatusToBackend(currentOrderId, pId, false, condition));
+                UnityEngine.Debug.Log($"🚨 [PrintingManager] Immediate error reported: {condition}");
+
+                // NEW: Direct move to Login
+                if (PhotoShootingManager.Instance != null)
+                {
+                    PhotoShootingManager.Instance.ResetToLoginScreen();
+                    UnityEngine.Debug.Log("🏠 [PrintingManager] Session aborted due to printer error -> Returning to Login");
+                }
+            }
+
         
             bool isSessionActive = false;
             if (LoginManager.Instance != null)
@@ -429,10 +422,14 @@ public class PrintingManager : MonoBehaviour
         if (printerErrorPanel != null && printerErrorPanel.activeSelf)
         {
             printerErrorPanel.SetActive(false);
+            closeButtonTapCount = 0; // Reset count when panel is hidden
         }
     }
 
-    public IEnumerator SendPrintStatusToBackend(string orderId, string paymentId, bool printingStatus, string condition)
+   // public IEnumerator SendPrintStatusToBackend(string orderId, string paymentId, bool printingStatus, string condition)
+
+
+    public IEnumerator SendPrintStatusToBackend(string orderId,  bool printingStatus, string condition)
     {
         if (string.IsNullOrEmpty(orderId)) yield break;
 
@@ -441,7 +438,7 @@ public class PrintingManager : MonoBehaviour
         var payload = new
         {
             order_id = orderId,
-            payment_id = paymentId,
+           
             printingStatus = printingStatus,
             condition = condition
         };
@@ -451,13 +448,33 @@ public class PrintingManager : MonoBehaviour
 
         yield return LoggedWebRequest.Post(url, jsonPayload, (request) =>
         {
+            string responseText = request.downloadHandler?.text;
             if (request.result == UnityEngine.Networking.UnityWebRequest.Result.Success)
             {
-                UnityEngine.Debug.Log("✅ Print status reported successfully!");
+                try
+                {
+                    var res = JsonConvert.DeserializeObject<dynamic>(responseText);
+                    if (res != null && res.message != null)
+                        UnityEngine.Debug.Log($"✅ Backend: {res.message}");
+                }
+                catch { }
+
+                UnityEngine.Debug.Log($"✅ Print status reported successfully! Response: {responseText}");
             }
             else
             {
                 UnityEngine.Debug.LogError($"❌ Failed to report print status: {request.error}");
+                if (!string.IsNullOrEmpty(responseText))
+                {
+                    try
+                    {
+                        var res = JsonConvert.DeserializeObject<dynamic>(responseText);
+                        if (res != null && res.error != null)
+                            UnityEngine.Debug.LogError($"❌ Backend Error: {res.error}");
+                    }
+                    catch { }
+                    UnityEngine.Debug.LogError($"❌ Full Response: {responseText}");
+                }
             }
         });
     }
