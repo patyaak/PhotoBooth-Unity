@@ -101,7 +101,7 @@ public class UiController : MonoBehaviour
         float targetAspect = placeholderWidth / placeholderHeight;
 
         // Set screen size to match placeholder aspect ratio (using consistent base width)
-        float baseWidth = 800f;
+        float baseWidth = 1000f;
         float adjustedHeight = baseWidth / targetAspect;
 
         screen.rectTransform.sizeDelta = new Vector2(baseWidth, adjustedHeight);

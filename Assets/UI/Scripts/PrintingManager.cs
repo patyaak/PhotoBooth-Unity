@@ -371,9 +371,19 @@ public class PrintingManager : MonoBehaviour
 
             // NEW: Immediate reporting if session is active
             string currentOrderId = PaymentManager.Instance?.currentOrderId;
-            if (!string.IsNullOrEmpty(currentOrderId) && lastReportedErrorOrderId != currentOrderId)
+            
+            bool isSessionActive = false;
+            if (LoginManager.Instance != null)
             {
-               // string pId = PaymentManager.Instance?.currentPaymentId ?? "";
+                if ((LoginManager.Instance.frameSelectionPanel != null && LoginManager.Instance.frameSelectionPanel.activeSelf) ||
+                    (LoginManager.Instance.paymentPanel != null && LoginManager.Instance.paymentPanel.activeSelf))
+                {
+                    isSessionActive = true;
+                }
+            }
+
+            if (isSessionActive && lastReportedErrorOrderId != (currentOrderId ?? "no_order"))
+            {
                 string condition = msg; 
                 
                 // Map the Japanese message back to English conditions if possible, or use the raw message
@@ -381,12 +391,19 @@ public class PrintingManager : MonoBehaviour
                 else if (msg.Contains("用紙切れ")) condition = "no print out";
                 else if (msg.Contains("プリンターが接続")) condition = "printer offline";
 
-                lastReportedErrorOrderId = currentOrderId;
-                StartCoroutine(SendPrintStatusToBackend(currentOrderId,  false, condition));
-               // StartCoroutine(SendPrintStatusToBackend(currentOrderId, pId, false, condition));
-                UnityEngine.Debug.Log($"🚨 [PrintingManager] Immediate error reported: {condition}");
+                if (!string.IsNullOrEmpty(currentOrderId))
+                {
+                    lastReportedErrorOrderId = currentOrderId;
+                    StartCoroutine(SendPrintStatusToBackend(currentOrderId, false, condition));
+                    UnityEngine.Debug.Log($"🚨 [PrintingManager] Immediate error reported for order {currentOrderId}: {condition}");
+                }
+                else
+                {
+                    lastReportedErrorOrderId = "no_order";
+                    UnityEngine.Debug.Log($"🚨 [PrintingManager] Session error detected (before order creation): {condition}");
+                }
 
-                // NEW: Direct move to Login
+                // Direct move to Login
                 if (PhotoShootingManager.Instance != null)
                 {
                     PhotoShootingManager.Instance.ResetToLoginScreen();
@@ -394,12 +411,11 @@ public class PrintingManager : MonoBehaviour
                 }
             }
 
-        
-            bool isSessionActive = false;
             if (LoginManager.Instance != null)
             {
                 if ((LoginManager.Instance.frameSelectionPanel != null && LoginManager.Instance.frameSelectionPanel.activeSelf) ||
-                    (LoginManager.Instance.paymentPanel != null && LoginManager.Instance.paymentPanel.activeSelf))
+                    (LoginManager.Instance.paymentPanel != null && LoginManager.Instance.paymentPanel.activeSelf) ||
+                    (PhotoShootingManager.Instance != null && PhotoShootingManager.Instance.photoShootPanel != null && PhotoShootingManager.Instance.photoShootPanel.activeSelf))
                 {
                     isSessionActive = true;
                 }
@@ -477,6 +493,12 @@ public class PrintingManager : MonoBehaviour
                 }
             }
         });
+    }
+
+    public void ResetErrorState()
+    {
+        lastReportedErrorOrderId = "";
+        UnityEngine.Debug.Log("🔄 [PrintingManager] Error reporting state reset for next customer.");
     }
 
 }

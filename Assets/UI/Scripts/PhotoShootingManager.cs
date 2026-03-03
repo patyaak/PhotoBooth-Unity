@@ -33,6 +33,8 @@ public class PhotoShootingManager : MonoBehaviour
     public RawImage cameraPreview;
     public Image capturePreview;
     public Button reshotButton;
+    public TMP_Text retakeCountText;
+
 
     [Header("Frame Display")]
     public CapturedPhotosDisplayManager displayManager;
@@ -208,6 +210,8 @@ public class PhotoShootingManager : MonoBehaviour
         uniqueIndices.Clear();
         
         currentRetakeCount = 0; // Reset for first shot
+        UpdateRetakeUI();
+
 
         // Apply automatic filter to Live Camera Preview
         if (liveCameraFaceEffects != null)
@@ -411,6 +415,8 @@ public class PhotoShootingManager : MonoBehaviour
         capturePreview.preserveAspect = false;
         capturePreview.gameObject.SetActive(true);
         if (reshotButton != null) reshotButton.gameObject.SetActive(true); // Ensure reshot button is active
+        UpdateRetakeUI();
+
         cameraPreview.gameObject.SetActive(false);
 
         MatchPreviewSizes();
@@ -455,6 +461,8 @@ public class PhotoShootingManager : MonoBehaviour
         
         currentShotIndex++;
         currentRetakeCount = 0; // Reset for next shot
+        UpdateRetakeUI();
+
 
         if (currentShotIndex < uniqueIndices.Count)
         {
@@ -501,6 +509,8 @@ public class PhotoShootingManager : MonoBehaviour
         // Increment retake count
         currentRetakeCount++;
         Debug.Log($"🔄 Retake clicked. Count: {currentRetakeCount}/{maxRetakes}");
+        UpdateRetakeUI();
+
 
         // Safety: Ensure panel is deactivated
         if (beautificationPanel != null) beautificationPanel.SetActive(false);
@@ -514,6 +524,16 @@ public class PhotoShootingManager : MonoBehaviour
         StartCoroutine(StartCountdownAndCapture());
     }
 
+    private void UpdateRetakeUI()
+    {
+        if (retakeCountText != null)
+        {
+            int remaining = maxRetakes - currentRetakeCount;
+            retakeCountText.text = $"{remaining}";
+        }
+    }
+
+
     public bool CanRetake()
     {
         return currentRetakeCount < maxRetakes;
@@ -524,7 +544,6 @@ public class PhotoShootingManager : MonoBehaviour
         RectTransform camRect = cameraPreview.rectTransform;
         RectTransform capRect = capturePreview.rectTransform;
 
-        float baseSize = 800f;
         float width, height;
 
         if (currentShotIndex < placeholders.Count)
@@ -535,27 +554,28 @@ public class PhotoShootingManager : MonoBehaviour
 
             float aspect = phWidth / phHeight;
 
-            if (aspect >= 1f)
+            if (aspect >= 2f) // Landscape or Square
             {
-                width = baseSize;
-                height = baseSize / aspect;
+                width = 1500f;
+                height = 1500f / aspect;
             }
-            else
+            else // Portrait
             {
-                height = baseSize;
-                width = baseSize * aspect;
+                height = 1000f;
+                width = 1000f * aspect;
             }
 
             Debug.Log($"📷 Setting preview to {width}x{height} to match placeholder {phWidth}x{phHeight} (aspect: {aspect:F2})");
         }
         else
         {
-            width = height = baseSize;
+            width = height = 1080f;
         }
 
         camRect.sizeDelta = new Vector2(width, height);
         capRect.sizeDelta = new Vector2(width, height);
     }
+
 
     private void ApplyCenterCropToRawImageWithPlaceholder(RawImage raw, int texW, int texH, float phWidth, float phHeight)
     {
@@ -1284,6 +1304,9 @@ public class PhotoShootingManager : MonoBehaviour
     {
         Debug.Log("🔄 Resetting to login screen for next customer...");
 
+        // NEW: Stop all ongoing processes (countdowns, flashes, uploads)
+        StopAllCoroutines();
+
         // Clear all captured data
         capturedPhotos.Clear();
         photoByIndex.Clear();
@@ -1291,6 +1314,18 @@ public class PhotoShootingManager : MonoBehaviour
         placeholders.Clear();
         currentShotIndex = 0;
         currentFrameItem = null;
+
+        // Clear current order ID to mark end of customer session
+        if (PaymentManager.Instance != null)
+        {
+            PaymentManager.Instance.currentOrderId = null;
+        }
+
+        // Reset printing error state to allow reporting for next customer
+        if (PrintingManager.Instance != null)
+        {
+            PrintingManager.Instance.ResetErrorState();
+        }
 
         // Clear beautified images
         if (UiController.Instance != null)
