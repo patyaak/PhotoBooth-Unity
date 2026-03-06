@@ -51,6 +51,11 @@ public class PhotoBoothFrameManager : MonoBehaviour
     public FrameItem currentSelectedFrame;
     private bool isFetching = false;
 
+    // Progress Tracking
+    public float DownloadProgress { get; private set; } = 0f;
+    private int totalDownloadCount = 0;
+    private int completedDownloadCount = 0;
+
     private Dictionary<Button, Sprite> normalSprites = new Dictionary<Button, Sprite>();
     private Dictionary<string, Sprite> imageCache = new Dictionary<string, Sprite>();
     public Dictionary<string, Texture2D> assetCache = new Dictionary<string, Texture2D>();
@@ -553,61 +558,83 @@ public class PhotoBoothFrameManager : MonoBehaviour
 
     private IEnumerator DownloadThumbnailsAndAssetsParallel(List<FrameItem> items)
     {
-        if (items == null) yield break;
-
-        foreach (FrameItem item in items)
+        if (items == null || items.Count == 0)
         {
-            if (item == null || item.frameData == null) continue;
-
-            string thumbUrl = ResolveUrl(item.frameData.thumb_path);
-            if (!string.IsNullOrEmpty(thumbUrl) && !imageCache.ContainsKey(thumbUrl))
-                StartCoroutine(DownloadThumbnail(thumbUrl, item));
-            else if (imageCache.ContainsKey(thumbUrl))
-                item.ApplySprite(imageCache[thumbUrl]);
-
-            string assetUrl = ResolveUrl(item.frameData.asset_path);
-            if (!string.IsNullOrEmpty(assetUrl) && !assetCache.ContainsKey(assetUrl) && !downloadingAssets.Contains(assetUrl))
-                StartCoroutine(DownloadAndCacheTextureCoroutine(assetUrl));
-        }
-    }
-
-    private IEnumerator DownloadThumbnail(string url, FrameItem item)
-    {
-        if (imageCache.ContainsKey(url))
-        {
-            if (item != null)
-            {
-                item.ApplySprite(imageCache[url]);
-                item.SetThumbnailAlpha(1f);
-            }
+            DownloadProgress = 1f;
             yield break;
         }
 
+        completedDownloadCount = 0;
+        totalDownloadCount = 0;
+
+        // Count downloads
+        foreach (FrameItem item in items)
+        {
+            if (item == null || item.frameData == null) continue;
+            string thumbUrl = ResolveUrl(item.frameData.thumb_path);
+            if (!string.IsNullOrEmpty(thumbUrl) && !imageCache.ContainsKey(thumbUrl)) totalDownloadCount++;
+            string assetUrl = ResolveUrl(item.frameData.asset_path);
+            if (!string.IsNullOrEmpty(assetUrl) && !assetCache.ContainsKey(assetUrl) && !downloadingAssets.Contains(assetUrl)) totalDownloadCount++;
+        }
+
+        if (totalDownloadCount == 0)
+        {
+            DownloadProgress = 1f;
+            yield break;
+        }
+
+        DownloadProgress = 0f;
+        foreach (FrameItem item in items)
+        {
+            if (item == null || item.frameData == null) continue;
+            string thumbUrl = ResolveUrl(item.frameData.thumb_path);
+            if (!string.IsNullOrEmpty(thumbUrl) && !imageCache.ContainsKey(thumbUrl))
+                StartCoroutine(DownloadThumbnail(thumbUrl, item, OnDownloadItemComplete));
+            string assetUrl = ResolveUrl(item.frameData.asset_path);
+            if (!string.IsNullOrEmpty(assetUrl) && !assetCache.ContainsKey(assetUrl) && !downloadingAssets.Contains(assetUrl))
+                StartCoroutine(DownloadAndCacheTextureCoroutine(assetUrl, OnDownloadItemComplete));
+        }
+
+        while (completedDownloadCount < totalDownloadCount) yield return null;
+        DownloadProgress = 1f;
+    }
+
+    private void OnDownloadItemComplete()
+    {
+        completedDownloadCount++;
+        DownloadProgress = (float)completedDownloadCount / totalDownloadCount;
+    }
+
+    private IEnumerator DownloadThumbnail(string url, FrameItem item, System.Action onComplete = null)
+    {
+        if (imageCache.ContainsKey(url)) { onComplete?.Invoke(); yield break; }
         yield return FrameCacheManager.DownloadAndCacheTexture(url, tex =>
         {
             if (tex != null)
             {
                 Sprite sprite = Sprite.Create(tex, new Rect(0, 0, tex.width, tex.height), Vector2.one * 0.5f);
                 imageCache[url] = sprite;
-                // Race condition check: item might have been reused or destroyed
                 if (item != null && item.gameObject.activeInHierarchy)
                 {
                     item.ApplySprite(sprite);
                     item.SetThumbnailAlpha(1f);
                 }
             }
+            onComplete?.Invoke();
         });
     }
 
-    private IEnumerator DownloadAndCacheTextureCoroutine(string url)
+    private IEnumerator DownloadAndCacheTextureCoroutine(string url, System.Action onComplete = null)
     {
-        if (downloadingAssets.Contains(url)) yield break;
+        if (assetCache.ContainsKey(url)) { onComplete?.Invoke(); yield break; }
+        if (downloadingAssets.Contains(url)) { onComplete?.Invoke(); yield break; }
+        
         downloadingAssets.Add(url);
-
         yield return FrameCacheManager.DownloadAndCacheTexture(url, tex =>
         {
             if (tex != null) assetCache[url] = tex;
             downloadingAssets.Remove(url);
+            onComplete?.Invoke();
         });
     }
 

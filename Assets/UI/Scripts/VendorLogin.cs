@@ -12,6 +12,8 @@ public class VendorLogin : MonoBehaviour
     public GameObject mainAppPanel;
     public GameObject vendorPanel;
     public GameObject loadingPanel;
+    public TextMeshProUGUI loadingPercentage;
+    public float loadingAnimationSpeed = 50f; // Speed for percentage count-up
     public GameObject wifiErrorGO;
 
     [Header("Theme References (Image Components)")]
@@ -128,7 +130,7 @@ public class VendorLogin : MonoBehaviour
 
         if (priceParent != null)
             priceParent.SetActive(false); // Offline mode = no payments
-
+        
         if (boothPrice != null)
             boothPrice.text = PlayerPrefs.GetString("booth_price", "");
         
@@ -204,6 +206,7 @@ public class VendorLogin : MonoBehaviour
     IEnumerator FetchBoothData(string url)
     {
         if (loadingPanel != null) loadingPanel.SetActive(true);
+        UpdateLoadingProgress(0);
 
         using (UnityWebRequest request = UnityWebRequest.Get(url))
         {
@@ -293,13 +296,37 @@ public class VendorLogin : MonoBehaviour
                         details: JsonUtility.ToJson(booth)
                     );
 
-                    // Fetch frames from server AND WAIT for completion
+                    // Start fetching frames
                     var frameManager = FindAnyObjectByType<PhotoBoothFrameManager>();
                     if (frameManager != null)
                     {
                         frameManager.SetBoothID(booth.booth_id);
                         frameManager.ClearFrames();
-                        yield return StartCoroutine(frameManager.FetchFramesFromServer());
+                        
+                        float targetProgress = 20;
+                        float displayedProgress = 0;
+
+                        // Start fetching
+                        var fetchCoroutine = StartCoroutine(frameManager.FetchFramesFromServer());
+
+                        // While downloading thumbnails/assets, update progress smoothly
+                        while (displayedProgress < 100)
+                        {
+                            targetProgress = 20f + (frameManager.DownloadProgress * 80f);
+                            
+                            // Smoothly move towards target
+                            displayedProgress = Mathf.MoveTowards(displayedProgress, targetProgress, loadingAnimationSpeed * Time.deltaTime);
+                            
+                            UpdateLoadingProgress(displayedProgress);
+                            
+                            // Only exit if both animation and download are finished
+                            if (displayedProgress >= 100 && frameManager.DownloadProgress >= 1f)
+                                break;
+
+                            yield return null;
+                        }
+
+                        yield return fetchCoroutine;
                     }
 
                     // Activate main app panel only AFTER data is ready
@@ -319,6 +346,7 @@ public class VendorLogin : MonoBehaviour
                         wifiErrorGO.SetActive(true);
                     if (loadingPanel != null)
                         loadingPanel.SetActive(false);
+                    UpdateLoadingProgress(0);
                 }
             }
             else
@@ -328,6 +356,7 @@ public class VendorLogin : MonoBehaviour
                     wifiErrorGO.SetActive(true);
                 if (loadingPanel != null)
                     loadingPanel.SetActive(false);
+                UpdateLoadingProgress(0);
             }
         }
     }
@@ -451,6 +480,9 @@ public class VendorLogin : MonoBehaviour
         if (errorPanel != null)
             errorPanel.SetActive(true);
 
+        if (loadingPanel != null)
+            loadingPanel.SetActive(false);
+
         mainAppPanel.SetActive(false);
         SwitchVendor();
     }
@@ -483,6 +515,14 @@ public class VendorLogin : MonoBehaviour
             }
 
             yield return new WaitForSeconds(5f); // check every 5 seconds
+        }
+    }
+
+    private void UpdateLoadingProgress(float percentage)
+    {
+        if (loadingPercentage != null)
+        {
+            loadingPercentage.text = $"{Mathf.RoundToInt(percentage)}%";
         }
     }
 }
