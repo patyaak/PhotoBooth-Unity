@@ -587,9 +587,19 @@ public class PhotoBoothFrameManager : MonoBehaviour
         foreach (FrameItem item in items)
         {
             if (item == null || item.frameData == null) continue;
+            
             string thumbUrl = ResolveUrl(item.frameData.thumb_path);
-            if (!string.IsNullOrEmpty(thumbUrl) && !imageCache.ContainsKey(thumbUrl))
-                StartCoroutine(DownloadThumbnail(thumbUrl, item, OnDownloadItemComplete));
+            if (!string.IsNullOrEmpty(thumbUrl))
+            {
+                if (!imageCache.ContainsKey(thumbUrl))
+                    StartCoroutine(DownloadThumbnail(thumbUrl, item, OnDownloadItemComplete));
+                else
+                {
+                    item.ApplySprite(imageCache[thumbUrl]);
+                    item.SetThumbnailAlpha(1f);
+                }
+            }
+
             string assetUrl = ResolveUrl(item.frameData.asset_path);
             if (!string.IsNullOrEmpty(assetUrl) && !assetCache.ContainsKey(assetUrl) && !downloadingAssets.Contains(assetUrl))
                 StartCoroutine(DownloadAndCacheTextureCoroutine(assetUrl, OnDownloadItemComplete));
