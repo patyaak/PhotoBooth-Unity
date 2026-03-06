@@ -11,6 +11,7 @@ public class VendorLogin : MonoBehaviour
     public Button submitButton;
     public GameObject mainAppPanel;
     public GameObject vendorPanel;
+    public GameObject loadingPanel;
     public GameObject wifiErrorGO;
 
     [Header("Theme References (Image Components)")]
@@ -147,9 +148,9 @@ public class VendorLogin : MonoBehaviour
         var frameManager = FindAnyObjectByType<PhotoBoothFrameManager>();
         if (frameManager != null)
         {
-            frameManager.ClearFrames();
             frameManager.SetBoothID(currentBoothID);
-            frameManager.LoadFramesFromCache(currentBoothID);
+            frameManager.ClearFrames();
+            frameManager.LoadFramesFromCache("default", currentBoothID);
             Debug.Log($"📦 Loaded cached frames for booth: {currentBoothID}");
         }
 
@@ -202,6 +203,8 @@ public class VendorLogin : MonoBehaviour
 
     IEnumerator FetchBoothData(string url)
     {
+        if (loadingPanel != null) loadingPanel.SetActive(true);
+
         using (UnityWebRequest request = UnityWebRequest.Get(url))
         {
             yield return request.SendWebRequest();
@@ -290,19 +293,21 @@ public class VendorLogin : MonoBehaviour
                         details: JsonUtility.ToJson(booth)
                     );
 
-                    // Activate main app panel
-                    mainAppPanel.SetActive(true);
-                    if (vendorPanel != null)
-                        vendorPanel.SetActive(false);
-
-                    // Fetch frames from server
+                    // Fetch frames from server AND WAIT for completion
                     var frameManager = FindAnyObjectByType<PhotoBoothFrameManager>();
                     if (frameManager != null)
                     {
-                        frameManager.ClearFrames();
                         frameManager.SetBoothID(booth.booth_id);
-                        StartCoroutine(frameManager.FetchFramesFromServer());
+                        frameManager.ClearFrames();
+                        yield return StartCoroutine(frameManager.FetchFramesFromServer());
                     }
+
+                    // Activate main app panel only AFTER data is ready
+                    mainAppPanel.SetActive(true);
+                    if (vendorPanel != null)
+                        vendorPanel.SetActive(false);
+                    if (loadingPanel != null)
+                        loadingPanel.SetActive(false);
 
                     // Start checking booth status periodically
                     StartCoroutine(CheckBoothStatusRoutine());
@@ -312,6 +317,8 @@ public class VendorLogin : MonoBehaviour
                     Debug.LogError($"Invalid or empty response.\nRaw JSON:\n{json}");
                     if (wifiErrorGO != null)
                         wifiErrorGO.SetActive(true);
+                    if (loadingPanel != null)
+                        loadingPanel.SetActive(false);
                 }
             }
             else
@@ -319,6 +326,8 @@ public class VendorLogin : MonoBehaviour
                 Debug.LogError($"Booth fetch failed: {request.error}");
                 if (wifiErrorGO != null)
                     wifiErrorGO.SetActive(true);
+                if (loadingPanel != null)
+                    loadingPanel.SetActive(false);
             }
         }
     }
@@ -420,7 +429,11 @@ public class VendorLogin : MonoBehaviour
 
         var frameManager = FindAnyObjectByType<PhotoBoothFrameManager>();
         if (frameManager != null)
+        {
+            frameManager.SetBoothID("");
+            frameManager.ClearAllCaches();
             frameManager.ClearFrames();
+        }
 
         Debug.Log("All data cleared. Ready for a new booth ID.");
     }

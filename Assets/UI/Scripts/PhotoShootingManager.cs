@@ -199,8 +199,13 @@ public class PhotoShootingManager : MonoBehaviour
 
     public void StartShooting(FrameItem selectedFrame, string orderID = null)
     {
-        if (selectedFrame == null) return;
+        if (selectedFrame == null)
+        {
+            Debug.LogError("❌ [PSM] StartShooting called with NULL frame!");
+            return;
+        }
 
+        Debug.Log($"🎬 [PSM] StartShooting called with frame: {selectedFrame?.frameData?.frame_id ?? "NULL"} | OrderID: {orderID ?? "none"}");
         photoShootPanel.SetActive(true); // Activate early to ensure child objects (CameraPreview) are findable
 
         currentFrameItem = selectedFrame;
@@ -306,14 +311,29 @@ public class PhotoShootingManager : MonoBehaviour
 
     private void StartWebcam()
     {
-        if (WebCamTexture.devices.Length == 0) return;
+        if (WebCamTexture.devices.Length == 0)
+        {
+            Debug.LogError("❌ No webcam devices found!");
+            return;
+        }
+
+        // NEW: Cleanup existing texture before starting new one to avoid camera lock/black screen
+        if (webCamTexture != null)
+        {
+            Debug.Log("📷 [PSM] Cleaning up old WebCamTexture before starting new one.");
+            if (webCamTexture.isPlaying) webCamTexture.Stop();
+            Destroy(webCamTexture);
+            webCamTexture = null;
+        }
 
         if (!string.IsNullOrEmpty(currentWebcamName))
         {
+            Debug.Log($"📷 [PSM] Starting webcam: {currentWebcamName}");
             webCamTexture = new WebCamTexture(currentWebcamName);
         }
         else
         {
+            Debug.Log("📷 [PSM] Starting default webcam");
             webCamTexture = new WebCamTexture();
         }
         webCamTexture.Play();
@@ -333,6 +353,24 @@ public class PhotoShootingManager : MonoBehaviour
 
     private IEnumerator StartCountdownAndCapture()
     {
+        Debug.Log("📸 [PSM] StartCountdownAndCapture routine began.");
+        
+        // NEW: Wait for webcam to be ready if it's not already (5s timeout)
+        float timeout = Time.time + 5f;
+        while (webCamTexture != null && webCamTexture.width < 100 && Time.time < timeout)
+        {
+            yield return null;
+        }
+        
+        if (webCamTexture == null || webCamTexture.width < 100)
+        {
+            Debug.LogWarning("⚠️ [PSM] Webcam took too long to initialize or failed. Attempting to proceed with countdown...");
+        }
+        else
+        {
+            Debug.Log($"📷 [PSM] Webcam ready: {webCamTexture.width}x{webCamTexture.height}");
+        }
+
         capturePreview.gameObject.SetActive(false);
         cameraPreview.gameObject.SetActive(true);
         UpdateRemainingShots(false); // Update counter for camera mode
@@ -402,7 +440,19 @@ public class PhotoShootingManager : MonoBehaviour
 
     private void CapturePhoto(int placeholderIndex, float targetWidth, float targetHeight)
     {
-        if (webCamTexture == null) return;
+        Debug.Log($"📸 [PSM] CapturePhoto called for index {placeholderIndex}. Target size: {targetWidth}x{targetHeight}");
+        if (webCamTexture == null)
+        {
+            Debug.LogError("❌ [PSM] Capture failed: webCamTexture is NULL!");
+            return;
+        }
+
+        if (webCamTexture.width < 100)
+        {
+            Debug.LogError($"❌ [PSM] Capture failed: webCamTexture width is only {webCamTexture.width}. Webcam not ready!");
+            // Attempt to restart the wait or handled error
+            return;
+        }
 
         Texture2D raw = new Texture2D(webCamTexture.width, webCamTexture.height, TextureFormat.RGB24, false);
         raw.SetPixels(webCamTexture.GetPixels());
@@ -429,7 +479,16 @@ public class PhotoShootingManager : MonoBehaviour
 
     public void OpenBeautificationForImage(Texture2D image, int placeholderIndex, float w, float h)
     {
-        beautificationPanel.SetActive(true);
+        Debug.Log($"🎨 [PSM] OpenBeautificationForImage called. Panel: {beautificationPanel != null}");
+        if (beautificationPanel != null)
+        {
+            beautificationPanel.SetActive(true);
+            Debug.Log("✅ [PSM] Beautification Panel set to ACTIVE.");
+        }
+        else
+        {
+            Debug.LogError("❌ [PSM] beautificationPanel reference is MISSING!");
+        }
 
         // Control EditPanel visibility based on decoration_enabled flag
         if (editPanel != null)
@@ -554,18 +613,40 @@ public class PhotoShootingManager : MonoBehaviour
 
             float aspect = phWidth / phHeight;
 
-            if (aspect >= 2f) // Landscape or Square
+            // Detect current scene orientation
+            string currentSceneName = UnityEngine.SceneManagement.SceneManager.GetActiveScene().name;
+            bool isPortraitScene = currentSceneName.IndexOf("Portrait", System.StringComparison.OrdinalIgnoreCase) >= 0;
+
+            if (isPortraitScene)
             {
-                width = 1500f;
-                height = 1500f / aspect;
+                // PORTRAIT SCENE: Limit base dimension to 1000
+                if (aspect >= 1f) // Landscape or Square placeholder
+                {
+                    width = 1200f;
+                    height = 1200f / aspect;
+                }
+                else // Portrait placeholder
+                {
+                    height = 1200f;
+                    width = 1200f * aspect;
+                }
             }
-            else // Portrait
+            else
             {
-                height = 1000f;
-                width = 1000f * aspect;
+                // LANDSCAPE SCENE (or Default): Keep existing 1500/1000 logic
+                if (aspect >= 2f) // Very wide landscape
+                {
+                    width = 1500f;
+                    height = 1500f / aspect;
+                }
+                else // Standard landscape, square, or portrait
+                {
+                    height = 1000f;
+                    width = 1000f * aspect;
+                }
             }
 
-            Debug.Log($"📷 Setting preview to {width}x{height} to match placeholder {phWidth}x{phHeight} (aspect: {aspect:F2})");
+            Debug.Log($"📷 [PSM] Scene: {(isPortraitScene ? "Portrait" : "Landscape/Other")}, Setting preview to {width}x{height} for placeholder {phWidth}x{phHeight} (aspect: {aspect:F2})");
         }
         else
         {
@@ -1306,6 +1387,20 @@ public class PhotoShootingManager : MonoBehaviour
 
         // NEW: Stop all ongoing processes (countdowns, flashes, uploads)
         StopAllCoroutines();
+
+        // NEW: Stop and cleanup webcam to release hardware resource
+        if (webCamTexture != null)
+        {
+            if (webCamTexture.isPlaying) webCamTexture.Stop();
+            Debug.Log($"📷 [PSM] Stopping and destroying WebCamTexture: {webCamTexture.deviceName}");
+            Destroy(webCamTexture);
+            webCamTexture = null;
+        }
+
+        // NEW: Clear UI references to avoid showing old data or destroyed textures
+        if (cameraPreview != null) cameraPreview.texture = null;
+        if (capturePreview != null) capturePreview.sprite = null;
+        if (finalPhotoPreview != null) finalPhotoPreview.sprite = null;
 
         // Clear all captured data
         capturedPhotos.Clear();

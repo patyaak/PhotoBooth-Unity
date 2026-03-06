@@ -25,19 +25,19 @@ public static class FrameCacheManager
     // ---------------------------------------------------------
     // JSON Caching
     // ---------------------------------------------------------
-    private static string GetJSONPath(string category) =>
-        Path.Combine(cacheDir, $"frames_{category}.json");
+    private static string GetJSONPath(string category, string boothID) =>
+        Path.Combine(cacheDir, $"frames_{boothID}_{category}.json");
 
-    public static bool HasCachedData(string category) =>
-        File.Exists(GetJSONPath(category));
+    public static bool HasCachedData(string category, string boothID) =>
+        File.Exists(GetJSONPath(category, boothID));
 
-    public static void SaveJSON(string json, string category)
+    public static void SaveJSON(string json, string category, string boothID)
     {
         try
         {
             EnsureCacheDir();
-            File.WriteAllText(GetJSONPath(category), json);
-            Debug.Log($"✅ Saved JSON cache for '{category}'");
+            File.WriteAllText(GetJSONPath(category, boothID), json);
+            Debug.Log($"✅ Saved JSON cache for '{category}' (Booth: {boothID})");
         }
         catch (System.Exception ex)
         {
@@ -45,11 +45,11 @@ public static class FrameCacheManager
         }
     }
 
-    public static string LoadCachedJSON(string category)
+    public static string LoadCachedJSON(string category, string boothID)
     {
         try
         {
-            string path = GetJSONPath(category);
+            string path = GetJSONPath(category, boothID);
             if (File.Exists(path))
                 return File.ReadAllText(path);
         }

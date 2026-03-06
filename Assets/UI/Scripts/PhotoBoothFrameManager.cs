@@ -200,7 +200,27 @@ public class PhotoBoothFrameManager : MonoBehaviour
         UpdateNavigationButtons();
     }
 
-    public void SetBoothID(string id) => boothID = id;
+    public void SetBoothID(string id)
+    {
+        if (boothID != id)
+        {
+            Debug.Log($"🆔 Booth ID changing: {boothID} -> {id}. Clearing all caches.");
+            ClearAllCaches();
+        }
+        boothID = id;
+    }
+
+    public void ClearAllCaches()
+    {
+        imageCache.Clear();
+        ClearAssetCache();
+        downloadingAssets.Clear();
+        // Clear frame pool to ensure fresh prefabs
+        foreach (var go in framePool)
+            if (go != null) Destroy(go);
+        framePool.Clear();
+        Debug.Log("🧹 All image and asset caches cleared.");
+    }
 
     // ==================================================================
     // NEW: RESET TO DEFAULT CATEGORY METHOD
@@ -292,6 +312,7 @@ public class PhotoBoothFrameManager : MonoBehaviour
         if (isFetching || string.IsNullOrEmpty(boothID)) yield break;
 
         isFetching = true;
+        string currentBoothAtStart = boothID;
         ClearFrames();
 
         string url = API.BaseURL + "/api/photobooth/frames";
@@ -329,11 +350,18 @@ public class PhotoBoothFrameManager : MonoBehaviour
             // ✅ CHANGED: Use ServerAwareWebRequest instead of UnityWebRequest
             yield return ServerAwareWebRequest.Get(fullURL, (request) =>
             {
+                // Ensure we are still on the same booth
+                if (boothID != currentBoothAtStart)
+                {
+                    Debug.LogWarning("Booth ID changed during fetch. Aborting.");
+                    return;
+                }
+
                 // ✅ Check for connectivity errors
                 if (ServerAwareWebRequest.IsConnectivityError(request))
                 {
                     Debug.LogWarning("⚠️ Server connectivity issue → loading from cache");
-                    StartCoroutine(LoadFramesFromCache(currentCategory));
+                    StartCoroutine(LoadFramesFromCache(currentCategory, boothID));
                     return;
                 }
 
@@ -354,30 +382,30 @@ public class PhotoBoothFrameManager : MonoBehaviour
                         framesToDisplay = cachedResponse?.data?.frames;
                     }
 
-                    FrameCacheManager.SaveJSON(json, currentCategory);
+                    FrameCacheManager.SaveJSON(json, currentCategory, boothID);
                     DisplayFrames(framesToDisplay);
                 }
                 else
                 {
                     Debug.LogWarning("API failed → loading from cache");
-                    StartCoroutine(LoadFramesFromCache(currentCategory));
+                    StartCoroutine(LoadFramesFromCache(currentCategory, boothID));
                 }
             });
         }
         else
         {
-            yield return LoadFramesFromCache(currentCategory);
+            yield return LoadFramesFromCache(currentCategory, boothID);
         }
 
         isFetching = false;
     }
 
 
-    public IEnumerator LoadFramesFromCache(string category)
+    public IEnumerator LoadFramesFromCache(string category, string targetBoothID)
     {
-        if (!FrameCacheManager.HasCachedData(category)) yield break;
+        if (!FrameCacheManager.HasCachedData(category, targetBoothID)) yield break;
 
-        string json = FrameCacheManager.LoadCachedJSON(category);
+        string json = FrameCacheManager.LoadCachedJSON(category, targetBoothID);
         if (string.IsNullOrEmpty(json)) yield break;
 
         cachedResponse = JsonUtility.FromJson<FrameResponse>(json);
@@ -387,7 +415,7 @@ public class PhotoBoothFrameManager : MonoBehaviour
             ? cachedResponse?.data?.my_frames
             : cachedResponse?.data?.frames;
 
-        if (framesToDisplay != null)
+        if (framesToDisplay != null && boothID == targetBoothID)
             DisplayFrames(framesToDisplay);
     }
 
@@ -401,26 +429,25 @@ public class PhotoBoothFrameManager : MonoBehaviour
         currentFrameItems.Clear();
         currentSelectedFrame = null;
 
-        // Return current active objects to pool
-        // We iterate backwards or just loop through transform children
-        // But since we are modifying hierarchy or just disabling, let's iterate safe
-        
-        // Better: iterate transform children, disable them, add to pool
-        // Note: contentParent might have other things (empty state obj?), check specific component
+        // Populate pool with current children (only active ones to avoid double-enqueuing)
         for (int i = contentParent.childCount - 1; i >= 0; i--)
         {
             Transform child = contentParent.GetChild(i);
+            if (child == null) continue;
             GameObject go = child.gameObject;
             
-            // Check if it's a frame item (and not empty state message)
+            // Check if it's a frame item
             if (go.GetComponent<FrameItem>())
             {
-                go.SetActive(false);
-                framePool.Enqueue(go);
+                if (go.activeSelf)
+                {
+                    go.SetActive(false);
+                    framePool.Enqueue(go);
+                }
             }
             else
             {
-                // If it's the empty state message, destroy it or handle separately
+                // If it's the empty state message, destroy it
                 if (go.GetComponentInChildren<TextMeshProUGUI>())
                     Destroy(go);
             }
@@ -443,10 +470,21 @@ public class PhotoBoothFrameManager : MonoBehaviour
 
         foreach (Frame frame in frames)
         {
-            GameObject obj;
-            if (framePool.Count > 0)
+            GameObject obj = null;
+            
+            // Try to get a valid object from pool
+            while (framePool.Count > 0)
             {
-                obj = framePool.Dequeue();
+                GameObject temp = framePool.Dequeue();
+                if (temp != null)
+                {
+                    obj = temp;
+                    break;
+                }
+            }
+
+            if (obj != null)
+            {
                 obj.transform.SetParent(contentParent, false); // Ensure it's at the end
                 obj.SetActive(true);
             }
@@ -537,8 +575,11 @@ public class PhotoBoothFrameManager : MonoBehaviour
     {
         if (imageCache.ContainsKey(url))
         {
-            item.ApplySprite(imageCache[url]);
-            item.SetThumbnailAlpha(1f);
+            if (item != null)
+            {
+                item.ApplySprite(imageCache[url]);
+                item.SetThumbnailAlpha(1f);
+            }
             yield break;
         }
 
@@ -548,7 +589,8 @@ public class PhotoBoothFrameManager : MonoBehaviour
             {
                 Sprite sprite = Sprite.Create(tex, new Rect(0, 0, tex.width, tex.height), Vector2.one * 0.5f);
                 imageCache[url] = sprite;
-                if (item != null)
+                // Race condition check: item might have been reused or destroyed
+                if (item != null && item.gameObject.activeInHierarchy)
                 {
                     item.ApplySprite(sprite);
                     item.SetThumbnailAlpha(1f);

@@ -330,9 +330,9 @@ public class GatchaManager : MonoBehaviour
 
     private IEnumerator LoadFromCacheFallback(int index)
     {
-        if (FrameCacheManager.HasCachedData("gacha"))
+        if (FrameCacheManager.HasCachedData("gacha", boothID))
         {
-            string cachedJson = FrameCacheManager.LoadCachedJSON("gacha");
+            string cachedJson = FrameCacheManager.LoadCachedJSON("gacha", boothID);
             if (!string.IsNullOrEmpty(cachedJson))
             {
                 FrameResponse cachedResponse = JsonUtility.FromJson<FrameResponse>(cachedJson);
@@ -364,9 +364,9 @@ public class GatchaManager : MonoBehaviour
             availableFrames.AddRange(gachaFrames);
             availableFrames.Remove(clickedResultFrame);
         }
-        else if (FrameCacheManager.HasCachedData("gacha"))
+        else if (FrameCacheManager.HasCachedData("gacha", boothID))
         {
-            string cachedJson = FrameCacheManager.LoadCachedJSON("gacha");
+            string cachedJson = FrameCacheManager.LoadCachedJSON("gacha", boothID);
             if (!string.IsNullOrEmpty(cachedJson))
             {
                 FrameResponse cachedResponse = JsonUtility.FromJson<FrameResponse>(cachedJson);
