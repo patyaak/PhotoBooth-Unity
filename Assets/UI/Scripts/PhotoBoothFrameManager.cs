@@ -1,4 +1,4 @@
-﻿using System.Collections;
+using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using TMPro;
@@ -617,17 +617,35 @@ public class PhotoBoothFrameManager : MonoBehaviour
 
     private IEnumerator DownloadThumbnail(string url, FrameItem item, System.Action onComplete = null)
     {
-        if (imageCache.ContainsKey(url)) { onComplete?.Invoke(); yield break; }
+        if (imageCache.ContainsKey(url))
+        {
+            onComplete?.Invoke();
+            yield break;
+        }
+
         yield return FrameCacheManager.DownloadAndCacheTexture(url, tex =>
         {
             if (tex != null)
             {
                 Sprite sprite = Sprite.Create(tex, new Rect(0, 0, tex.width, tex.height), Vector2.one * 0.5f);
                 imageCache[url] = sprite;
-                if (item != null && item.gameObject.activeInHierarchy)
+                if (item != null)
                 {
                     item.ApplySprite(sprite);
                     item.SetThumbnailAlpha(1f);
+                }
+            }
+            else
+            {
+                Debug.LogWarning($"❌ Thumbnail download failed for URL: {url}");
+                if (item != null)
+                {
+                    // Fallback to offline texture if available
+                    if (item.offlineTexture != null)
+                    {
+                        item.ApplySprite(Sprite.Create(item.offlineTexture, new Rect(0,0, item.offlineTexture.width, item.offlineTexture.height), Vector2.one * 0.5f));
+                        item.SetThumbnailAlpha(0.5f); // Dimmed to show it's offline/failed
+                    }
                 }
             }
             onComplete?.Invoke();
@@ -636,13 +654,24 @@ public class PhotoBoothFrameManager : MonoBehaviour
 
     private IEnumerator DownloadAndCacheTextureCoroutine(string url, System.Action onComplete = null)
     {
-        if (assetCache.ContainsKey(url)) { onComplete?.Invoke(); yield break; }
-        if (downloadingAssets.Contains(url)) { onComplete?.Invoke(); yield break; }
+        if (assetCache.ContainsKey(url) || downloadingAssets.Contains(url))
+        {
+            onComplete?.Invoke();
+            yield break;
+        }
         
         downloadingAssets.Add(url);
         yield return FrameCacheManager.DownloadAndCacheTexture(url, tex =>
         {
-            if (tex != null) assetCache[url] = tex;
+            if (tex != null)
+            {
+                assetCache[url] = tex;
+            }
+            else
+            {
+                Debug.LogWarning($"❌ Asset download failed for URL: {url}");
+            }
+            
             downloadingAssets.Remove(url);
             onComplete?.Invoke();
         });

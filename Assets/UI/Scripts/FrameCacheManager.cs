@@ -1,4 +1,4 @@
-﻿using System.Collections;
+using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using UnityEngine;
@@ -19,7 +19,33 @@ public static class FrameCacheManager
 
     private static string HashName(string input)
     {
-        return input.GetHashCode().ToString();
+        using (System.Security.Cryptography.MD5 md5 = System.Security.Cryptography.MD5.Create())
+        {
+            byte[] inputBytes = System.Text.Encoding.ASCII.GetBytes(input);
+            byte[] hashBytes = md5.ComputeHash(inputBytes);
+
+            System.Text.StringBuilder sb = new System.Text.StringBuilder();
+            for (int i = 0; i < hashBytes.Length; i++)
+            {
+                sb.Append(hashBytes[i].ToString("X2"));
+            }
+            return sb.ToString();
+        }
+    }
+
+    private static string GetCleanExtension(string url)
+    {
+        if (string.IsNullOrEmpty(url)) return ".png";
+        
+        // Strip query parameters and fragments
+        int queryIdx = url.IndexOf('?');
+        if (queryIdx > 0) url = url.Substring(0, queryIdx);
+        
+        int fragmentIdx = url.IndexOf('#');
+        if (fragmentIdx > 0) url = url.Substring(0, fragmentIdx);
+
+        string ext = Path.GetExtension(url);
+        return string.IsNullOrWhiteSpace(ext) ? ".png" : ext;
     }
 
     // ---------------------------------------------------------
@@ -89,9 +115,7 @@ public static class FrameCacheManager
 
         EnsureCacheDir();
 
-        string ext = Path.GetExtension(url);
-        if (string.IsNullOrWhiteSpace(ext)) ext = ".png";
-
+        string ext = GetCleanExtension(url);
         string fileName = $"{HashName(url)}{ext}";
         string filePath = Path.Combine(cacheDir, fileName);
 
@@ -122,11 +146,16 @@ public static class FrameCacheManager
         using (UnityWebRequest req = UnityWebRequestTexture.GetTexture(url))
         {
             // Fix for 403: Mimic a real browser (Chrome on Windows)
-            // Some servers require Referer/Origin or specific Accept headers
             req.SetRequestHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
             req.SetRequestHeader("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8");
-            req.SetRequestHeader("Referer", "https://photo-stg-api.chvps3.aozora-okinawa.com/");
-            // req.SetRequestHeader("Origin", "https://photo-stg-api.chvps3.aozora-okinawa.com"); // Sometimes needed, sometimes breaks it. Let's try Referer first.
+            
+            // Use API.BaseURL as Referer
+            string referer = API.BaseURL;
+            if (!string.IsNullOrEmpty(referer))
+            {
+               req.SetRequestHeader("Referer", referer);
+            }
+            
             req.SetRequestHeader("Accept-Language", "en-US,en;q=0.9");
             req.SetRequestHeader("Cache-Control", "max-age=0");
             
@@ -135,6 +164,7 @@ public static class FrameCacheManager
             if (req.result != UnityWebRequest.Result.Success)
             {
                 Debug.LogWarning($"⚠️ Download failed: {req.error} ({url})");
+                if (req.responseCode > 0) Debug.LogWarning($"   Code: {req.responseCode}");
                 onDone?.Invoke(null);
                 yield break;
             }
@@ -142,13 +172,12 @@ public static class FrameCacheManager
             Texture2D downloaded = DownloadHandlerTexture.GetContent(req);
             onDone?.Invoke(downloaded);
 
-            // SAVE TO CACHE (Async file write not easily available, but fast enough for binary)
+            // SAVE TO CACHE
             try
             {
                 EnsureCacheDir();
                 byte[] bytes = downloaded.EncodeToPNG();
                 File.WriteAllBytes(filePath, bytes);
-                // Debug.Log($"[FrameCacheManager] Cached texture → {filePath}");
             }
             catch (System.Exception ex)
             {
@@ -170,9 +199,7 @@ public static class FrameCacheManager
 
         EnsureCacheDir();
 
-        string ext = Path.GetExtension(url);
-        if (string.IsNullOrWhiteSpace(ext)) ext = ".png";
-
+        string ext = GetCleanExtension(url);
         string fileName = $"{HashName(url)}{ext}";
         string filePath = Path.Combine(cacheDir, fileName);
 
