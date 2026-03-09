@@ -28,8 +28,8 @@ namespace Mediapipe.Unity.Tutorial
         [SerializeField] private Shader faceEffectsShader;
 
         [Header("Brightening Settings")]
-        [SerializeField, Range(0f, 0.4f)]
-        private float brightenStrength = 0.2f;
+        [SerializeField, Range(-1f, 2f)]
+        private float brightenStrength = 0.0f;
 
         [SerializeField, Range(0.02f, 0.15f)]
         private float regionExpansion = 0.12f;

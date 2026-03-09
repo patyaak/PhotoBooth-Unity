@@ -3,7 +3,7 @@ Shader "Custom/FaceEffects"
     Properties
     {
         _MainTex ("Texture", 2D) = "white" {}
-        _BrightenStrength ("Brighten Strength", Range(0, 3)) = 0.3
+        _BrightenStrength ("Brighten Strength", Range(-1, 2)) = 0.0
         _Smoothness ("Edge Smoothness", Range(0.001, 0.1)) = 0.02
         _ForeheadExpansionMultiplier ("Forehead Expansion Multiplier", Range(0.5, 2.0)) = 1.5
 
@@ -801,51 +801,16 @@ Shader "Custom/FaceEffects"
                 }
 
                 // ============================================
-                // STEP 3: FACE BRIGHTENING
-                // Uses ORIGINAL UV (i.uv) for position detection, not modified UV
+                // STEP 3: GLOBAL BRIGHTENING
                 // Applies AFTER smoothing so brightening is preserved
                 // ============================================
 
-                float finalWeight = geometricWeight;
-
-                // Apply brightening only if enabled and face detected
-                if (_BrightenStrength > 0.0 && geometricWeight >= 0.01)
+                if (_BrightenStrength != 0.0)
                 {
-                    // ============================================
-                    // STAGE 2: Skin Detection (Optional refinement in expansion zones)
-                    // Only apply skin filtering if we're in an expansion zone (not fully inside)
-                    // ============================================
+                    // Apply brightening globally
+                    col.rgb *= (1.0 + _BrightenStrength);
 
-                    if (_EnableSkinDetection > 0.5 && geometricWeight < 1.0)
-                    {
-                        // We're in an expansion zone - apply skin detection
-                        float skinWeight = 0.0;
-
-                        if (_UseAdaptiveSkinColor > 0.5)
-                        {
-                            // ADAPTIVE MODE: Compare against actual face skin color
-                            float3 referenceSkin = GetReferenceSkinColor();
-                            skinWeight = DetectSkinAdaptive(col.rgb, referenceSkin);
-                        }
-                        else
-                        {
-                            // GENERIC MODE: Use universal skin tone ranges
-                            skinWeight = DetectSkinTone(col.rgb);
-                        }
-
-                        // Only apply geometric weight if it's skin
-                        if (skinWeight < 0.5)
-                        {
-                            // Not skin - reduce weight to zero
-                            finalWeight = 0.0;
-                        }
-                        // If it is skin, keep the geometric weight as-is
-                    }
-
-                    // Apply brightening based on combined weight
-                    col.rgb *= (1.0 + _BrightenStrength * finalWeight);
-
-                    // Prevent overexposure
+                    // Prevent overexposure or underexposure
                     col.rgb = saturate(col.rgb);
                 }
 
