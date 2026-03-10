@@ -975,10 +975,10 @@ PlayerSettings:
   captureStartupLogs: {}
   activeInputHandler: 2
   windowsGamepadBackendHint: 0
-  cloudProjectId: d8beeee3-eba4-47f6-bec7-ba62398b6d29
+  cloudProjectId: 30b592a5-387a-4f38-98e8-8bab7d9003b4
   framebufferDepthMemorylessMode: 0
   qualitySettingsNames: []
-  projectName: photobooth
+  projectName: photobooth (1)
   organizationId: pmulguthi12
   cloudEnabled: 0
   legacyClampBlendShapeWeights: 0

@@ -87,6 +87,21 @@ public static class FrameCacheManager
     }
 
     // ---------------------------------------------------------
+    // Public Path Helper
+    // ---------------------------------------------------------
+    /// <summary>
+    /// Returns the full local file path where a texture downloaded from <paramref name="url"/>
+    /// would be (or is) cached.  Use this instead of rolling your own hash logic.
+    /// </summary>
+    public static string GetCachedTexturePath(string url)
+    {
+        if (string.IsNullOrEmpty(url)) return null;
+        string ext = GetCleanExtension(url);
+        string fileName = $"{HashName(url)}{ext}";
+        return Path.Combine(cacheDir, fileName);
+    }
+
+    // ---------------------------------------------------------
     // General Texture Saving (Manual Key)
     // ---------------------------------------------------------
     public static void SaveTexture(Texture2D tex, string key)

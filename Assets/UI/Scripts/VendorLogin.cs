@@ -152,8 +152,10 @@ public class VendorLogin : MonoBehaviour
         {
             frameManager.SetBoothID(currentBoothID);
             frameManager.ClearFrames();
-            frameManager.LoadFramesFromCache("default", currentBoothID);
-            Debug.Log($"📦 Loaded cached frames for booth: {currentBoothID}");
+            // ✅ FIX: LoadFramesFromCache is a coroutine — must use StartCoroutine, otherwise it silently does nothing.
+            StartCoroutine(frameManager.LoadFramesFromCache("default", currentBoothID));
+            Debug.Log($"📦 Loading cached frames for booth: {currentBoothID}");
+
         }
 
         Debug.Log("✅ Offline mode ready — app running smoothly with cached data (no WiFi panel)");

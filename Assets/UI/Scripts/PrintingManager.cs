@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using UnityEngine;
 using System.Diagnostics;
 using System.IO;
@@ -225,7 +225,7 @@ public class PrintingManager : MonoBehaviour
                 float scaleX = bounds.Width / img.Width;
                 float scaleY = bounds.Height / img.Height;
                 float scale = Math.Min(scaleX, scaleY);
-
+               // float scale = Math.Max(scaleX, scaleY); 
                 // If you want to FILL the page (and crop excess), use Math.Max instead.
                 // For Photo Booths with borders, usually we want EXACT fit.
                 // Let's force STRETCH if the aspect ratio is extremely close (borderless).

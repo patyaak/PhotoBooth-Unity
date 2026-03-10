@@ -244,6 +244,11 @@ public class PhotoBoothFrameManager : MonoBehaviour
             currentSelectedFrame = null;
         }
 
+        // ✅ FIX: Clear the in-memory sprite/thumbnail cache between customer sessions.
+        // Without this, thumbnails downloaded for a previous customer are reused for the
+        // next customer even if the frame data has changed, causing mismatched thumbnails.
+        imageCache.Clear();
+
         // Check if "Default" category is enabled
         bool isDefaultEnabled = PlayerPrefs.GetInt("default_enabled", 1) == 1;
 
