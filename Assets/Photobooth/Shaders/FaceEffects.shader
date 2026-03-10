@@ -3,7 +3,8 @@ Shader "Custom/FaceEffects"
     Properties
     {
         _MainTex ("Texture", 2D) = "white" {}
-        _BrightenStrength ("Brighten Strength", Range(-1, 2)) = 0.0
+        _BrightenStrength ("Overall Brighten Strength", Range(-1, 2)) = 0.0
+        _FaceBrightenStrength ("Face Brighten Strength", Range(-1, 2)) = 0.0
         _Smoothness ("Edge Smoothness", Range(0.001, 0.1)) = 0.02
         _ForeheadExpansionMultiplier ("Forehead Expansion Multiplier", Range(0.5, 2.0)) = 1.5
 
@@ -47,6 +48,7 @@ Shader "Custom/FaceEffects"
             sampler2D _MainTex;
             float4 _MainTex_ST;
             float _BrightenStrength;
+            float _FaceBrightenStrength;
             float _RegionExpansion;
             float _ForeheadExpansionMultiplier;
             float _EnableSkinDetection;
@@ -801,18 +803,31 @@ Shader "Custom/FaceEffects"
                 }
 
                 // ============================================
-                // STEP 3: GLOBAL BRIGHTENING
+                // STEP 3: BRIGHTENING
                 // Applies AFTER smoothing so brightening is preserved
                 // ============================================
 
+                // Face brightening
+                if (_FaceBrightenStrength != 0.0 && geometricWeight >= 0.01)
+                {
+                    // Apply brightening to face regions using geometric weight
+                    // This creates a smooth transition at the face boundary
+                    float3 brightenedFace = col.rgb * (1.0 + _FaceBrightenStrength);
+                    col.rgb = lerp(col.rgb, brightenedFace, geometricWeight);
+                }
+
+                // Global brightening (applies to entire image)
                 if (_BrightenStrength != 0.0)
                 {
-                    // Apply brightening globally
                     col.rgb *= (1.0 + _BrightenStrength);
+                }
 
-                    // Prevent overexposure or underexposure
+                // Prevent overexposure or underexposure
+                if (_FaceBrightenStrength != 0.0 || _BrightenStrength != 0.0)
+                {
                     col.rgb = saturate(col.rgb);
                 }
+
 
                 // ============================================
                 // STEP 4: APPLY COLOR FILTER

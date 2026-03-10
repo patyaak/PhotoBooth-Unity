@@ -12,6 +12,7 @@ public class UiController : MonoBehaviour
     public List<Texture2D> beautifiedImages = new List<Texture2D>();
 
     [SerializeField] private Slider brightnessSlider;
+    [SerializeField] private Slider faceBrightnessSlider;
     [SerializeField] private Slider smoothenSlider;
     [SerializeField] private Slider eyeEnlargementSlider;
 
@@ -23,6 +24,7 @@ public class UiController : MonoBehaviour
     private FaceEffectsController faceController;
 
     private float currentBrightness;
+    private float currentFaceBrightness;
     private float currentSmoothness;
     private float currentEnlarge;
 
@@ -55,6 +57,7 @@ public class UiController : MonoBehaviour
         retakeButton.onClick.AddListener(OnRetakeClicked);
 
         brightnessSlider.onValueChanged.AddListener(OnBrightnessChanged);
+        faceBrightnessSlider.onValueChanged.AddListener(OnFaceBrightnessChanged);
         smoothenSlider.onValueChanged.AddListener(OnSmoothenChanged);
         eyeEnlargementSlider.onValueChanged.AddListener(OnEyeEnlargeChanged);
     }
@@ -124,11 +127,13 @@ public class UiController : MonoBehaviour
 
         // Reset effect values for fresh start (User Request)
         currentBrightness = 0f;
+        currentFaceBrightness = 0f;
         currentSmoothness = 0f;
         currentEnlarge = 0f;
 
         blockCallbacks = true;
         brightnessSlider.value = currentBrightness;
+        faceBrightnessSlider.value = currentFaceBrightness;
         smoothenSlider.value = currentSmoothness;
         eyeEnlargementSlider.value = currentEnlarge;
         
@@ -180,6 +185,13 @@ public class UiController : MonoBehaviour
         ApplySettingsToFaceController();
     }
 
+    private void OnFaceBrightnessChanged(float value)
+    {
+        if (blockCallbacks) return;
+        if (isSingleImageMode) currentFaceBrightness = value;
+        ApplySettingsToFaceController();
+    }
+
     private void OnSmoothenChanged(float value)
     {
         if (blockCallbacks) return;
@@ -198,6 +210,7 @@ public class UiController : MonoBehaviour
     {
         if (faceController == null) return;
         faceController.BrightenStrength = currentBrightness;
+        faceController.FaceBrightenStrength = currentFaceBrightness;
         faceController.SmoothingStrength = currentSmoothness;
         faceController.UpdateEyeEnlargementStrength(currentEnlarge);
         faceController.CurrentFilter = currentFilter;
@@ -219,6 +232,7 @@ public class UiController : MonoBehaviour
         yield return StartCoroutine(StaticFaceDetection.Instance.OnDetectImage());
 
         faceController.BrightenStrength = currentBrightness;
+        faceController.FaceBrightenStrength = currentFaceBrightness;
         faceController.SmoothingStrength = currentSmoothness;
         faceController.UpdateEyeEnlargementStrength(currentEnlarge);
         faceController.CurrentFilter = currentFilter;

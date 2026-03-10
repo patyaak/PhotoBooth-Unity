@@ -31,6 +31,9 @@ namespace Mediapipe.Unity.Tutorial
         [SerializeField, Range(-1f, 2f)]
         private float brightenStrength = 0.0f;
 
+        [SerializeField, Range(-1f, 2f)]
+        private float faceBrightenStrength = 0.0f;
+
         [SerializeField, Range(0.02f, 0.15f)]
         private float regionExpansion = 0.12f;
 
@@ -454,6 +457,7 @@ namespace Mediapipe.Unity.Tutorial
 
             // Set brightening parameters
             brighteningMaterial.SetFloat("_BrightenStrength", enableBrightening ? brightenStrength : 0f);
+            brighteningMaterial.SetFloat("_FaceBrightenStrength", enableBrightening ? faceBrightenStrength : 0f);
             brighteningMaterial.SetFloat("_RegionExpansion", regionExpansion);
             brighteningMaterial.SetFloat("_ForeheadExpansionMultiplier", foreheadExpansionMultiplier);
 
@@ -496,8 +500,9 @@ namespace Mediapipe.Unity.Tutorial
 
             if (showDebugInfo)
             {
-                Debug.Log($"🎨 Shader updated - Brightening: {brightenStrength}, Enlargement: {eyeEnlargementStrength}, Smoothing: {smoothingStrength}, Points: {(hasValidFaceData ? faceOvalIndices.Length : 0)}");
+                Debug.Log($"🎨 Shader updated - Brightening: {brightenStrength}, Face Brightening: {faceBrightenStrength}, Enlargement: {eyeEnlargementStrength}, Smoothing: {smoothingStrength}, Points: {(hasValidFaceData ? faceOvalIndices.Length : 0)}");
             }
+
         }
 
         /// <summary>
@@ -840,6 +845,16 @@ namespace Mediapipe.Unity.Tutorial
             set
             {
                 brightenStrength = Mathf.Clamp(value, 0f, 2f);
+                UpdateShaderProperties();
+            }
+        }
+
+        public float FaceBrightenStrength
+        {
+            get => faceBrightenStrength;
+            set
+            {
+                faceBrightenStrength = Mathf.Clamp(value, 0f, 2f);
                 UpdateShaderProperties();
             }
         }
