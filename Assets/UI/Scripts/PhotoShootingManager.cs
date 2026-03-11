@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.IO;
@@ -19,7 +19,7 @@ public class PhotoShootingManager : MonoBehaviour
     public GameObject photoShootPanel;
     public GameObject beautificationPanel;
     public GameObject editPanel; // NEW
-    public GameObject photoPreviewPanel;
+    
     
     [Header("Countdown")]
     // public TMP_Text timerText; // Replaced
@@ -41,6 +41,7 @@ public class PhotoShootingManager : MonoBehaviour
 
     [Header("Preview Display")]
     public Image finalPhotoPreview;
+    public Image FramePreview;
 
     [Header("Webcam Selection")]
     public TMP_Dropdown webcamDropdown;
@@ -78,6 +79,8 @@ public class PhotoShootingManager : MonoBehaviour
 
     private Dictionary<int, Texture2D> photoByIndex = new Dictionary<int, Texture2D>();
     private List<int> uniqueIndices = new List<int>();
+    private List<RawImage> activeLivePreviews = new List<RawImage>();
+    private GameObject frameOverlayObject;
 
     private Texture2D finalComposedImageForPrint;
     private GameObject instantiatedFrameObject;
@@ -100,8 +103,6 @@ public class PhotoShootingManager : MonoBehaviour
     {
         autoPrintAfterCapture = true;
 
-        if (photoPreviewPanel != null)
-            photoPreviewPanel.SetActive(false);
 
         InitializeWebcamDropdown();
 
@@ -180,20 +181,102 @@ public class PhotoShootingManager : MonoBehaviour
     {
         if (webCamTexture != null && webCamTexture.width > 100)
         {
-            float phWidth = 800f;
-            float phHeight = 800f;
+            // Update main camera preview
+            UpdateSingleCameraPreview(cameraPreview, currentShotIndex);
 
-            if (currentShotIndex < cachedPlaceholderSizes.Count)
+            // Update all dynamic live previews in FramePreview
+            foreach (var preview in activeLivePreviews)
             {
-                var size = cachedPlaceholderSizes[currentShotIndex];
-                phWidth = size.x;
-                phHeight = size.y;
+                if (preview != null)
+                {
+                    // For dynamic previews, we need to find the placeholder it corresponds to
+                    // But simpler: just use the current shot index's first placeholder if we don't store it
+                    // Actually, let's just use the current shot index
+                    var placeholdersForShot = placeholders.Where(p => p.placeholder_index == uniqueIndices[currentShotIndex]).ToList();
+                    // This is slightly inefficient but safe. 
+                    // Better: store the placeholder in a component or dictionary.
+                    // For now, let's assume all active live previews match the current shot index dimensions.
+                    if (currentShotIndex < uniqueIndices.Count)
+                    {
+                        int currentIndex = uniqueIndices[currentShotIndex];
+                        var repPlaceholder = placeholders.FirstOrDefault(p => p.placeholder_index == currentIndex);
+                        if (repPlaceholder != null)
+                        {
+                             float phWidth = float.Parse(repPlaceholder.width);
+                             float phHeight = float.Parse(repPlaceholder.height);
+                             ApplyCenterCropToRawImageWithPlaceholder(preview, webCamTexture.width, webCamTexture.height, phWidth, phHeight);
+                        }
+                    }
+                }
             }
-
-            ApplyCenterCropToRawImageWithPlaceholder(cameraPreview, webCamTexture.width, webCamTexture.height, phWidth, phHeight);
         }
     }
 
+    private void UpdateSingleCameraPreview(RawImage preview, int shotIndex)
+    {
+        float phWidth = 800f;
+        float phHeight = 800f;
+
+        if (shotIndex < cachedPlaceholderSizes.Count)
+        {
+            var size = cachedPlaceholderSizes[shotIndex];
+            phWidth = size.x;
+            phHeight = size.y;
+        }
+
+        ApplyCenterCropToRawImageWithPlaceholder(preview, webCamTexture.width, webCamTexture.height, phWidth, phHeight);
+    }
+
+    private IEnumerator DownloadAndSetFramePreview(string assetURL)
+    {
+        using (UnityWebRequest req = UnityWebRequestTexture.GetTexture(assetURL))
+        {
+            yield return req.SendWebRequest();
+
+            if (req.result != UnityWebRequest.Result.Success)
+            {
+                Debug.LogWarning("❌ Failed to download frame preview texture: " + assetURL);
+                yield break;
+            }
+
+            Texture2D tex = DownloadHandlerTexture.GetContent(req);
+            Sprite frameSprite = Sprite.Create(
+                tex,
+                new Rect(0, 0, tex.width, tex.height),
+                new Vector2(0.5f, 0.5f),
+                100f,
+                0,
+                SpriteMeshType.FullRect
+            );
+
+            CreateFramePreviewImage(frameSprite);
+        }
+    }
+
+    private void CreateFramePreviewImage(Sprite sprite)
+    {
+        if (FramePreview == null) return;
+
+        // Create new GameObject for Image
+        frameOverlayObject = new GameObject("FrameImage");
+        frameOverlayObject.transform.SetParent(FramePreview.transform, false);
+
+        // Add and configure Image component
+        Image img = frameOverlayObject.AddComponent<Image>();
+        img.sprite = sprite;
+        img.preserveAspect = true;
+
+        // Anchor to fill parent
+        RectTransform imgRect = frameOverlayObject.GetComponent<RectTransform>();
+        imgRect.anchorMin = Vector2.zero;
+        imgRect.anchorMax = Vector2.one;
+        imgRect.offsetMin = Vector2.zero;
+        imgRect.offsetMax = Vector2.zero;
+
+        // Ensure frame is on top
+        frameOverlayObject.transform.SetAsLastSibling();
+    }
+    
     [Header("Face Effects (Live Preview)")]
     public FaceEffectsController liveCameraFaceEffects;
 
@@ -213,10 +296,52 @@ public class PhotoShootingManager : MonoBehaviour
         placeholders.Clear();
         photoByIndex.Clear();
         uniqueIndices.Clear();
+        activeLivePreviews.Clear();
+        frameOverlayObject = null;
         
         currentRetakeCount = 0; // Reset for first shot
         UpdateRetakeUI();
 
+        // --- NEW LOGIC: Instantiate frame in FramePreview ---
+        if (FramePreview != null && selectedFrame != null)
+        {
+            // Clear existing children
+            foreach (Transform child in FramePreview.transform)
+            {
+                Destroy(child.gameObject);
+            }
+
+            FramePreview.gameObject.SetActive(true);
+            FramePreview.color = new Color(1f, 1f, 1f, 0f); // Make the container transparent
+
+            // Resize FramePreview based on Scene like in StartShooting prefab
+            RectTransform framePreviewRT = FramePreview.GetComponent<RectTransform>();
+            if (framePreviewRT != null)
+            {
+                string sceneName = UnityEngine.SceneManagement.SceneManager.GetActiveScene().name;
+                if (sceneName.Equals("Portrait", System.StringComparison.OrdinalIgnoreCase))
+                {
+                    framePreviewRT.sizeDelta = new Vector2(1080, 1920);
+                }
+                else
+                {
+                    framePreviewRT.sizeDelta = new Vector2(1920, 1080);
+                }
+            }
+
+            // Start downloading the full transparent frame asset instead of using thumbnail
+            if (selectedFrame.frameData != null && !string.IsNullOrEmpty(selectedFrame.frameData.asset_path))
+            {
+                string assetUrl = PhotoBoothFrameManager.Instance.ResolveUrl(selectedFrame.frameData.asset_path);
+                StartCoroutine(DownloadAndSetFramePreview(assetUrl));
+            }
+            else if (selectedFrame.frameImg != null)
+            {
+                // Fallback to thumbnail if no asset path is found
+                CreateFramePreviewImage(selectedFrame.frameImg.sprite);
+            }
+        }
+        // --------------------------------------------------
 
         // Apply automatic filter to Live Camera Preview
         if (liveCameraFaceEffects != null)
@@ -389,6 +514,48 @@ public class PhotoShootingManager : MonoBehaviour
 
         SetCameraPreviewAspect(aspect);
 
+        // --- NEW MULTI-PREVIEW LOGIC ---
+        // Clear old live previews for the PREVIOUS shot index
+        foreach (var lp in activeLivePreviews) if (lp != null) Destroy(lp.gameObject);
+        activeLivePreviews.Clear();
+
+        if (FramePreview != null)
+        {
+            // Find all placeholders for the CURRENT shot index
+            var currentPlaceholders = placeholders.Where(p => p.placeholder_index == currentIndex).ToList();
+            foreach (var ph in currentPlaceholders)
+            {
+                GameObject previewObj = new GameObject($"LivePreview_Slot_{ph.frame_asset_id}", typeof(RawImage));
+                previewObj.transform.SetParent(FramePreview.transform, false);
+                
+                // Set as first sibling so it's behind the frame overlay
+                previewObj.transform.SetAsFirstSibling();
+
+                RawImage ri = previewObj.GetComponent<RawImage>();
+                ri.texture = webCamTexture;
+                
+                // Apply face effects material to support filters on dynamic previews
+                if (liveCameraFaceEffects != null)
+                {
+                    ri.material = liveCameraFaceEffects.GetBrighteningMaterial();
+                }
+                
+                activeLivePreviews.Add(ri);
+
+                RectTransform rt = previewObj.GetComponent<RectTransform>();
+                rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 0.5f);
+                rt.pivot = new Vector2(0.5f, 0.5f);
+                rt.sizeDelta = new Vector2(float.Parse(ph.width), float.Parse(ph.height));
+                rt.anchoredPosition = new Vector2(ph.x, ph.y);
+                rt.localRotation = Quaternion.Euler(0, 0, ph.rotation);
+                rt.localScale = new Vector3(ph.scale, ph.scale, 1f);
+            }
+
+            // Ensure frame is on top
+            if (frameOverlayObject != null) frameOverlayObject.transform.SetAsLastSibling();
+        }
+        // --------------------------------
+
         // --- NEW TIMER LOGIC ---
         if (timerRoot != null) timerRoot.SetActive(true);
         
@@ -473,6 +640,32 @@ public class PhotoShootingManager : MonoBehaviour
 
         photoByIndex[placeholderIndex] = cropped;
         
+        // --- ADD TO FRAME PREVIEW OVERLAY ---
+        if (FramePreview != null)
+        {
+            var currentPlaceholders = placeholders.Where(p => p.placeholder_index == placeholderIndex).ToList();
+            foreach (var ph in currentPlaceholders)
+            {
+                GameObject photoObj = new GameObject($"CapturedPhoto_Index{placeholderIndex}_Slot_{ph.frame_asset_id}", typeof(Image));
+                photoObj.transform.SetParent(FramePreview.transform, false);
+                photoObj.transform.SetAsFirstSibling();
+
+                Image img = photoObj.GetComponent<Image>();
+                img.sprite = Sprite.Create(cropped, new Rect(0, 0, cropped.width, cropped.height), Vector2.one * 0.5f);
+                img.preserveAspect = false;
+
+                RectTransform rt = photoObj.GetComponent<RectTransform>();
+                rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 0.5f);
+                rt.pivot = new Vector2(0.5f, 0.5f);
+                rt.sizeDelta = new Vector2(float.Parse(ph.width), float.Parse(ph.height));
+                rt.anchoredPosition = new Vector2(ph.x, ph.y);
+                rt.localRotation = Quaternion.Euler(0, 0, ph.rotation);
+                rt.localScale = new Vector3(ph.scale, ph.scale, 1f);
+            }
+            if (frameOverlayObject != null) frameOverlayObject.transform.SetAsLastSibling();
+        }
+        // ------------------------------------
+
         UpdateRemainingShots(true); // Decrement counter for beautification mode
         OpenBeautificationForImage(cropped, placeholderIndex, targetWidth, targetHeight);
     }
@@ -514,7 +707,23 @@ public class PhotoShootingManager : MonoBehaviour
         int currentIndex = uniqueIndices[currentShotIndex];
         if (UiController.Instance.beautifiedImages.Count > currentShotIndex)
         {
-            photoByIndex[currentIndex] = UiController.Instance.beautifiedImages[currentShotIndex];
+            int idx = uniqueIndices[currentShotIndex];
+            Texture2D beautified = UiController.Instance.beautifiedImages[currentShotIndex];
+            photoByIndex[idx] = beautified;
+
+            // Update the overlay image with the beautified version
+            if (FramePreview != null)
+            {
+                string namePrefix = $"CapturedPhoto_Index{idx}_";
+                var overlayPhotos = FramePreview.GetComponentsInChildren<Image>()
+                    .Where(i => i.gameObject.name.StartsWith(namePrefix))
+                    .ToList();
+                
+                foreach (var img in overlayPhotos)
+                {
+                    img.sprite = Sprite.Create(beautified, new Rect(0, 0, beautified.width, beautified.height), Vector2.one * 0.5f);
+                }
+            }
         }
 
         
@@ -580,6 +789,25 @@ public class PhotoShootingManager : MonoBehaviour
         reshotButton.gameObject.SetActive(false);
         cameraPreview.gameObject.SetActive(true);
 
+        // --- NEW LOGIC: Clear current photo from FramePreview for retake ---
+        if (FramePreview != null && currentShotIndex < uniqueIndices.Count)
+        {
+            int currentIndex = uniqueIndices[currentShotIndex];
+            string namePrefix = $"CapturedPhoto_Index{currentIndex}_";
+            
+            // Collect children to destroy to avoid modification issues during iteration
+            List<GameObject> toDestroy = new List<GameObject>();
+            foreach (Transform child in FramePreview.transform)
+            {
+                if (child.gameObject.name.StartsWith(namePrefix))
+                {
+                    toDestroy.Add(child.gameObject);
+                }
+            }
+            foreach (var go in toDestroy) Destroy(go);
+        }
+        // ------------------------------------------------------------------
+
         StartCoroutine(StartCountdownAndCapture());
     }
 
@@ -615,8 +843,13 @@ public class PhotoShootingManager : MonoBehaviour
 
             // Detect current scene orientation
             string currentSceneName = UnityEngine.SceneManagement.SceneManager.GetActiveScene().name;
-            bool isPortraitScene = currentSceneName.IndexOf("Portrait", System.StringComparison.OrdinalIgnoreCase) >= 0;
+            // bool isPortraitScene = currentSceneName.IndexOf("Portrait", System.StringComparison.OrdinalIgnoreCase) >= 0;
 
+            // NEW: Use exact placeholder size
+            width = phWidth;
+            height = phHeight;
+
+            /*
             if (isPortraitScene)
             {
                 // PORTRAIT SCENE: Limit base dimension to 1000
@@ -645,16 +878,42 @@ public class PhotoShootingManager : MonoBehaviour
                     width = 1000f * aspect;
                 }
             }
+            */
 
-            Debug.Log($"📷 [PSM] Scene: {(isPortraitScene ? "Portrait" : "Landscape/Other")}, Setting preview to {width}x{height} for placeholder {phWidth}x{phHeight} (aspect: {aspect:F2})");
+            Debug.Log($"📷 [PSM] Setting preview to direct backend size: {width}x{height} for placeholder {phWidth}x{phHeight} (aspect: {aspect:F2})");
         }
         else
         {
             width = height = 1080f;
         }
 
+        camRect.anchorMin = camRect.anchorMax = new Vector2(0.5f, 0.5f);
+        camRect.pivot = new Vector2(0.5f, 0.5f);
+        capRect.anchorMin = capRect.anchorMax = new Vector2(0.5f, 0.5f);
+        capRect.pivot = new Vector2(0.5f, 0.5f);
+
         camRect.sizeDelta = new Vector2(width, height);
         capRect.sizeDelta = new Vector2(width, height);
+
+        if (currentShotIndex < placeholders.Count)
+        {
+            var ph = placeholders[currentShotIndex];
+            camRect.anchoredPosition = new Vector2(ph.x, ph.y);
+            capRect.anchoredPosition = new Vector2(ph.x, ph.y);
+            camRect.localRotation = Quaternion.Euler(0, 0, ph.rotation);
+            capRect.localRotation = Quaternion.Euler(0, 0, ph.rotation);
+            camRect.localScale = new Vector3(ph.scale, ph.scale, 1f);
+            capRect.localScale = new Vector3(ph.scale, ph.scale, 1f);
+        }
+        else
+        {
+            camRect.anchoredPosition = Vector2.zero;
+            capRect.anchoredPosition = Vector2.zero;
+            camRect.localRotation = Quaternion.identity;
+            capRect.localRotation = Quaternion.identity;
+            camRect.localScale = Vector3.one;
+            capRect.localScale = Vector3.one;
+        }
     }
 
 
@@ -1401,6 +1660,19 @@ public class PhotoShootingManager : MonoBehaviour
         if (cameraPreview != null) cameraPreview.texture = null;
         if (capturePreview != null) capturePreview.sprite = null;
         if (finalPhotoPreview != null) finalPhotoPreview.sprite = null;
+        
+        // --- NEW LOGIC: Clean up FramePreview ---
+        if (FramePreview != null)
+        {
+            foreach (Transform child in FramePreview.transform)
+            {
+                Destroy(child.gameObject);
+            }
+            FramePreview.gameObject.SetActive(false);
+        }
+        activeLivePreviews.Clear();
+        frameOverlayObject = null;
+        // ----------------------------------------
 
         // Clear all captured data
         capturedPhotos.Clear();
@@ -1447,7 +1719,6 @@ public class PhotoShootingManager : MonoBehaviour
         // Close all panels except QR/Login
         if (photoShootPanel != null) photoShootPanel.SetActive(false);
         if (beautificationPanel != null) beautificationPanel.SetActive(false);
-        if (photoPreviewPanel != null) photoPreviewPanel.SetActive(false);
         if (loadingPanel != null) loadingPanel.SetActive(false);
         if (printingPanel != null) printingPanel.SetActive(false);
 
