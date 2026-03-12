@@ -229,6 +229,30 @@ public class PhotoShootingManager : MonoBehaviour
 
     private IEnumerator DownloadAndSetFramePreview(string assetURL)
     {
+        // 1. Check Memory Cache
+        if (PhotoBoothFrameManager.Instance != null && PhotoBoothFrameManager.Instance.assetCache.TryGetValue(assetURL, out Texture2D cachedTex))
+        {
+            Debug.Log("🖼️ [PSM] Using memory-cached high-res frame asset.");
+            ApplyTextureToFramePreview(cachedTex);
+            yield break;
+        }
+
+        // 2. Check Disk Cache
+        Texture2D diskTex = null;
+        yield return FrameCacheManager.LoadCachedTexture(assetURL, (tex) => diskTex = tex);
+        if (diskTex != null)
+        {
+            Debug.Log("🖼️ [PSM] Using disk-cached high-res frame asset.");
+            if (PhotoBoothFrameManager.Instance != null)
+            {
+                PhotoBoothFrameManager.Instance.assetCache[assetURL] = diskTex; // Cache it in memory too
+            }
+            ApplyTextureToFramePreview(diskTex);
+            yield break;
+        }
+
+        // 3. Download if not cached
+        Debug.Log("🌐 [PSM] Downloading high-res frame asset...");
         using (UnityWebRequest req = UnityWebRequestTexture.GetTexture(assetURL))
         {
             yield return req.SendWebRequest();
@@ -240,29 +264,44 @@ public class PhotoShootingManager : MonoBehaviour
             }
 
             Texture2D tex = DownloadHandlerTexture.GetContent(req);
-            Sprite frameSprite = Sprite.Create(
-                tex,
-                new Rect(0, 0, tex.width, tex.height),
-                new Vector2(0.5f, 0.5f),
-                100f,
-                0,
-                SpriteMeshType.FullRect
-            );
-
-            CreateFramePreviewImage(frameSprite);
+            ApplyTextureToFramePreview(tex);
         }
+    }
+
+    private void ApplyTextureToFramePreview(Texture2D tex)
+    {
+        Sprite frameSprite = Sprite.Create(
+            tex,
+            new Rect(0, 0, tex.width, tex.height),
+            new Vector2(0.5f, 0.5f),
+            100f,
+            0,
+            SpriteMeshType.FullRect
+        );
+        CreateFramePreviewImage(frameSprite);
     }
 
     private void CreateFramePreviewImage(Sprite sprite)
     {
         if (FramePreview == null) return;
 
-        // Create new GameObject for Image
-        frameOverlayObject = new GameObject("FrameImage");
-        frameOverlayObject.transform.SetParent(FramePreview.transform, false);
+        // Try to find existing FrameImage instead of creating a new one
+        if (frameOverlayObject == null)
+        {
+            Transform existing = FramePreview.transform.Find("FrameImage");
+            if (existing != null) frameOverlayObject = existing.gameObject;
+        }
+
+        if (frameOverlayObject == null)
+        {
+            frameOverlayObject = new GameObject("FrameImage");
+            frameOverlayObject.transform.SetParent(FramePreview.transform, false);
+        }
 
         // Add and configure Image component
-        Image img = frameOverlayObject.AddComponent<Image>();
+        Image img = frameOverlayObject.GetComponent<Image>();
+        if (img == null) img = frameOverlayObject.AddComponent<Image>();
+        
         img.sprite = sprite;
         img.preserveAspect = true;
 
@@ -305,9 +344,10 @@ public class PhotoShootingManager : MonoBehaviour
         // --- NEW LOGIC: Instantiate frame in FramePreview ---
         if (FramePreview != null && selectedFrame != null)
         {
-            // Clear existing children
+            // Clear existing children except the FrameImage if we want to reuse it
             foreach (Transform child in FramePreview.transform)
             {
+                if (frameOverlayObject != null && child.gameObject == frameOverlayObject) continue;
                 Destroy(child.gameObject);
             }
 
@@ -329,9 +369,16 @@ public class PhotoShootingManager : MonoBehaviour
                 }
             }
 
-            // Start downloading the full transparent frame asset instead of using thumbnail
+            // Start downloading the full transparent frame asset
             if (selectedFrame.frameData != null && !string.IsNullOrEmpty(selectedFrame.frameData.asset_path))
             {
+                // IMMEDIATELY SHOW THUMBNAIL AS PLACEHOLDER for faster visual feedback
+                if (selectedFrame.frameImg != null && selectedFrame.frameImg.sprite != null)
+                {
+                    CreateFramePreviewImage(selectedFrame.frameImg.sprite);
+                    Debug.Log("🖼️ [PSM] Thumbnail placeholder applied immediately.");
+                }
+
                 string assetUrl = PhotoBoothFrameManager.Instance.ResolveUrl(selectedFrame.frameData.asset_path);
                 StartCoroutine(DownloadAndSetFramePreview(assetUrl));
             }
