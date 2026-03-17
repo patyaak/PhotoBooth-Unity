@@ -102,7 +102,7 @@ public class PrintingManager : MonoBehaviour
         paperSizeDropdown.ClearOptions();
         // Common Epson SL-D1000/D500 Sizes
         // Format: "Name" (Internal Match String)
-        List<string> sizes = new List<string>() { "4x6", "5x7", "6x8", "3.5x5", "4x4", "5x5", "6x6" };
+        List<string> sizes = new List<string>() { "100x148", "4x6", "5x7", "6x8", "A4", "3.5x5", "4x4", "5x5", "6x6" };
         
         paperSizeDropdown.AddOptions(sizes);
 
@@ -180,6 +180,8 @@ public class PrintingManager : MonoBehaviour
             if (pSize == "4x6" && (driverName.Contains("102x152") || driverName.Contains("10x15"))) targetPaper = size;
             else if (pSize == "5x7" && (driverName.Contains("127x178") || driverName.Contains("13x18"))) targetPaper = size;
             else if (pSize == "6x8" && (driverName.Contains("152x203"))) targetPaper = size;
+            else if (pSize == "100x148" && (driverName.Contains("100x148") || driverName.Contains("100 x 148"))) targetPaper = size;
+            else if (pSize == "a4" && (driverName.Contains("a4") || driverName.Contains("210x297"))) targetPaper = size;
         }
 
         if (targetPaper != null)
@@ -195,6 +197,7 @@ public class PrintingManager : MonoBehaviour
 
         // --- ORIENTATION & MARGINS ---
         pd.DefaultPageSettings.Landscape = isLandscape;
+        pd.PrinterSettings.DefaultPageSettings.Landscape = isLandscape; // Force on printer settings too
         pd.DefaultPageSettings.Margins = new Margins(0, 0, 0, 0); // Hardware margins usually apply anyway, but we set 0 to be safe
         pd.OriginAtMargins = false; // We want to print on the physical page
 
@@ -210,32 +213,46 @@ public class PrintingManager : MonoBehaviour
             // Get Printable Area
             // Note: VisibleClipBounds matches the printable area inside margins.
             // Since we set margins to 0, this should match the paper size minus hardware limits.
-            System.Drawing.RectangleF bounds = e.Graphics.VisibleClipBounds;
+            // --- BORDERLESS BOUNDS SELECTION ---
+            // Use PageBounds (Physical sheet) instead of VisibleClipBounds (Driver-suggested printable area)
+            // to ignore hardware margins and achieve TRUE borderless coverage.
+            System.Drawing.RectangleF bounds = e.PageBounds; 
 
             // Convert Texture2D to System.Drawing.Image (Memory Stream)
             byte[] bytes = image.EncodeToPNG();
             using (MemoryStream ms = new MemoryStream(bytes))
             using (System.Drawing.Image img = System.Drawing.Image.FromStream(ms))
             {
-                // Fit to Page Logic (Uniform Fill or Fit)
-                // We typically want "Crop to Fill" if aspect ratios differ slightly, 
-                // OR "Shrink to Fit" if we want to show everything.
-                // Replicating previous logic: "Shrink to Fit" (Uniform)
-                
+                // Orientation sanity check/correction
+                bool imageIsLandscape = img.Width > img.Height;
+                bool paperIsLandscape = bounds.Width > bounds.Height;
+
+                UnityEngine.Debug.Log($"   [PrintPage] Image: {img.Width}x{img.Height} (L:{imageIsLandscape}) | Paper: {bounds.Width}x{bounds.Height} (L:{paperIsLandscape})");
+
+                if (imageIsLandscape != paperIsLandscape)
+                {
+                    UnityEngine.Debug.Log("   [PrintPage] Orientation mismatch! Rotating image 90 degrees.");
+                    img.RotateFlip(System.Drawing.RotateFlipType.Rotate90FlipNone);
+                }
+
+                // --- HARDCORE BORDERLESS LOGIC ---
+                // 1. Fill the page (Crop to Fill) instead of fitting (Shrink to Fit)
                 float scaleX = bounds.Width / img.Width;
                 float scaleY = bounds.Height / img.Height;
-                float scale = Math.Min(scaleX, scaleY);
-               // float scale = Math.Max(scaleX, scaleY); 
-                // If you want to FILL the page (and crop excess), use Math.Max instead.
-                // For Photo Booths with borders, usually we want EXACT fit.
-                // Let's force STRETCH if the aspect ratio is extremely close (borderless).
+                float scale = Math.Max(scaleX, scaleY); 
+
+                // 2. Add "Bleed/Overscan" (Scale up by 2% to cover hardware slippage)
+                const float bleedFactor = 1.02f; 
+                scale *= bleedFactor;
                 
                 float targetW = img.Width * scale;
                 float targetH = img.Height * scale;
 
-                float posX = bounds.Left + (bounds.Width - targetW) / 2;
-                float posY = bounds.Top + (bounds.Height - targetH) / 2;
+                // Center relative to physical page origin
+                float posX = (bounds.Width - targetW) / 2;
+                float posY = (bounds.Height - targetH) / 2;
 
+                UnityEngine.Debug.Log($"   [PrintPage] Drawing at ({posX}, {posY}) size: {targetW}x{targetH}");
                 e.Graphics.DrawImage(img, posX, posY, targetW, targetH);
             }
             e.HasMorePages = false;
