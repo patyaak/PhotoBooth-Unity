@@ -165,23 +165,37 @@ public class PrintingManager : MonoBehaviour
         // Normalize user selection to parts (e.g. "4x6" -> 4, 6)
         string pSize = selectedPaperSize.Replace(" ", "").ToLower(); // "4x6"
 
+        // Two-pass matching: 1. Try to find "Borderless" version, 2. Fallback to any match
         foreach (PaperSize size in pd.PrinterSettings.PaperSizes)
         {
-            // Simple match: check if the driver's paper name contains "4x6" or "4 x 6" etc.
-            // Also check for metric "102x152" if user selected 4x6
             string driverName = size.PaperName.Replace(" ", "").ToLower();
-
-            if (driverName.Contains(pSize)) 
+            if (driverName.Contains(pSize) && driverName.Contains("borderless"))
             {
                 targetPaper = size;
                 break;
             }
-            // fallback Metric matches for common sizes
-            if (pSize == "4x6" && (driverName.Contains("102x152") || driverName.Contains("10x15"))) targetPaper = size;
-            else if (pSize == "5x7" && (driverName.Contains("127x178") || driverName.Contains("13x18"))) targetPaper = size;
-            else if (pSize == "6x8" && (driverName.Contains("152x203"))) targetPaper = size;
-            else if (pSize == "100x148" && (driverName.Contains("100x148") || driverName.Contains("100 x 148"))) targetPaper = size;
-            else if (pSize == "a4" && (driverName.Contains("a4") || driverName.Contains("210x297"))) targetPaper = size;
+        }
+
+        if (targetPaper == null)
+        {
+            foreach (PaperSize size in pd.PrinterSettings.PaperSizes)
+            {
+                // Simple match: check if the driver's paper name contains "4x6" or "4 x 6" etc.
+                // Also check for metric "102x152" if user selected 4x6
+                string driverName = size.PaperName.Replace(" ", "").ToLower();
+
+                if (driverName.Contains(pSize)) 
+                {
+                    targetPaper = size;
+                    break;
+                }
+                // fallback Metric matches for common sizes
+                if (pSize == "4x6" && (driverName.Contains("102x152") || driverName.Contains("10x15"))) targetPaper = size;
+                else if (pSize == "5x7" && (driverName.Contains("127x178") || driverName.Contains("13x18"))) targetPaper = size;
+                else if (pSize == "6x8" && (driverName.Contains("152x203"))) targetPaper = size;
+                else if (pSize == "100x148" && (driverName.Contains("100x148") || driverName.Contains("100 x 148"))) targetPaper = size;
+                else if (pSize == "a4" && (driverName.Contains("a4") || driverName.Contains("210x297"))) targetPaper = size;
+            }
         }
 
         if (targetPaper != null)
@@ -195,11 +209,26 @@ public class PrintingManager : MonoBehaviour
             
         }
 
-        // --- ORIENTATION & MARGINS ---
+        // Force orientation aggressively
         pd.DefaultPageSettings.Landscape = isLandscape;
-        pd.PrinterSettings.DefaultPageSettings.Landscape = isLandscape; // Force on printer settings too
-        pd.DefaultPageSettings.Margins = new Margins(0, 0, 0, 0); // Hardware margins usually apply anyway, but we set 0 to be safe
-        pd.OriginAtMargins = false; // We want to print on the physical page
+        pd.PrinterSettings.DefaultPageSettings.Landscape = isLandscape;
+        pd.DefaultPageSettings.Margins = new Margins(0, 0, 0, 0);
+        pd.OriginAtMargins = false;
+        
+        if (targetPaper != null)
+        {
+            pd.DefaultPageSettings.PaperSize = targetPaper;
+            
+            // CRITICAL: Some drivers ignore the Landscape flag unless the PaperSize dimensions are swapped
+            // or explicitly set to match the desired orientation.
+            if (isLandscape && targetPaper.Width < targetPaper.Height)
+            {
+                UnityEngine.Debug.Log("   [Orientation] Attempting to force Landscape dimensions on PaperSize.");
+                // Note: We can't always modify the driver's PaperSize, but we can set a custom one 
+                // with swapped dimensions if necessary. For now, we trust the Landscape flag 
+                // but will also check it again inside the PrintPage event.
+            }
+        }
 
         // --- PRINT EVENT ---
         pd.PrintPage += (sender, e) =>
@@ -213,10 +242,31 @@ public class PrintingManager : MonoBehaviour
             // Get Printable Area
             // Note: VisibleClipBounds matches the printable area inside margins.
             // Since we set margins to 0, this should match the paper size minus hardware limits.
+            
+            // --- DEBUG LOGGING ---
+            UnityEngine.Debug.Log($"   [PrintPage] PageBounds: {e.PageBounds.Width}x{e.PageBounds.Height} (L: {e.PageSettings.Landscape})");
+            UnityEngine.Debug.Log($"   [PrintPage] MarginBounds: {e.MarginBounds.Width}x{e.MarginBounds.Height}");
+            UnityEngine.Debug.Log($"   [PrintPage] PrintableArea: {e.PageSettings.PrintableArea.Width:F1}x{e.PageSettings.PrintableArea.Height:F1}");
+            UnityEngine.Debug.Log($"   [PrintPage] VisibleClipBounds: {e.Graphics.VisibleClipBounds.Width:F1}x{e.Graphics.VisibleClipBounds.Height:F1}");
+
             // --- BORDERLESS BOUNDS SELECTION ---
-            // Use PageBounds (Physical sheet) instead of VisibleClipBounds (Driver-suggested printable area)
-            // to ignore hardware margins and achieve TRUE borderless coverage.
             System.Drawing.RectangleF bounds = e.PageBounds; 
+
+            // --- DRIVER QUIRK HEALING ---
+            // If we requested Landscape and the driver says it is Landscape (e.PageSettings.Landscape == true)
+            // but the Width is still smaller than Height, the driver "lied" about the bounds.
+            // We must manually rotate the Graphics context and swap our logical bounds.
+            if (isLandscape && bounds.Width < bounds.Height)
+            {
+                UnityEngine.Debug.Log("   [PrintPage] Driver Bounds Mismatch! Applying manual 90deg Graphics transform.");
+                e.Graphics.TranslateTransform(bounds.Width, 0);
+                e.Graphics.RotateTransform(90);
+                
+                // Swap bounds logically for our scaling calculations
+                float oldW = bounds.Width;
+                bounds.Width = bounds.Height;
+                bounds.Height = oldW;
+            }
 
             // Convert Texture2D to System.Drawing.Image (Memory Stream)
             byte[] bytes = image.EncodeToPNG();
@@ -237,22 +287,55 @@ public class PrintingManager : MonoBehaviour
 
                 // --- HARDCORE BORDERLESS LOGIC ---
                 // 1. Fill the page (Crop to Fill) instead of fitting (Shrink to Fit)
-                float scaleX = bounds.Width / img.Width;
-                float scaleY = bounds.Height / img.Height;
+                float scaleX = (float)bounds.Width / img.Width;
+                float scaleY = (float)bounds.Height / img.Height;
+                
+                // Use the LARGER scale to ensure the image fills the entire page (Crop to Fill)
                 float scale = Math.Max(scaleX, scaleY); 
 
-                // 2. Add "Bleed/Overscan" (Scale up by 2% to cover hardware slippage)
-                const float bleedFactor = 1.02f; 
+                // 2. Add "Bleed/Overscan" (Scale up slightly to cover hardware slippage)
+                // 1.04f (4%) is a good balance for SL-D500 and Canon.
+                float bleedFactor = 1.04f; 
                 scale *= bleedFactor;
                 
                 float targetW = img.Width * scale;
                 float targetH = img.Height * scale;
 
+                // 3. IMPROVED CENTERING & MARGIN HANDLING
                 // Center relative to physical page origin
-                float posX = (bounds.Width - targetW) / 2;
-                float posY = (bounds.Height - targetH) / 2;
+                float posX = (bounds.Width - targetW) / 2f;
+                float posY = (bounds.Height - targetH) / 2f;
 
-                UnityEngine.Debug.Log($"   [PrintPage] Drawing at ({posX}, {posY}) size: {targetW}x{targetH}");
+                // Adjust for HardMarginX/Y (The "Hardware Shift")
+                // On Epson printers, PrintableArea.X/Y is the most reliable "start point" off the edge.
+                float hardOffsetX = e.PageSettings.PrintableArea.X;
+                float hardOffsetY = e.PageSettings.PrintableArea.Y;
+                
+                // If the printer reports 0 for PrintableArea.X, fallback to HardMarginX
+                if (hardOffsetX == 0) hardOffsetX = e.PageSettings.HardMarginX;
+                if (hardOffsetY == 0) hardOffsetY = e.PageSettings.HardMarginY;
+
+                // SPECIAL FIX: If the image shifted LEFT causing a RIGHT white border, 
+                // it means hardOffsetX was too HIGH (we over-compensated).
+                // If it's still shifted, we might need a manual offset or a different inference.
+                
+                // FALLBACK: If driver reports 0 margins but VisibleClipBounds is smaller than PageBounds,
+                // it means the driver is hiding the margins from the properties but still clipping.
+                if (hardOffsetX == 0 && e.Graphics.VisibleClipBounds.Width < bounds.Width)
+                {
+                    hardOffsetX = (bounds.Width - e.Graphics.VisibleClipBounds.Width) / 2f;
+                    UnityEngine.Debug.Log($"   [PrintPage] Inferred HardMarginX: {hardOffsetX:F2}");
+                }
+                if (hardOffsetY == 0 && e.Graphics.VisibleClipBounds.Height < bounds.Height)
+                {
+                    hardOffsetY = (bounds.Height - e.Graphics.VisibleClipBounds.Height) / 2f;
+                    UnityEngine.Debug.Log($"   [PrintPage] Inferred HardMarginY: {hardOffsetY:F2}");
+                }
+
+                posX -= hardOffsetX;
+                posY -= hardOffsetY;
+
+                UnityEngine.Debug.Log($"   [PrintPage] Result -> Pos:({posX:F2}, {posY:F2}) Size:{targetW:F2}x{targetH:F2} | DriverOffsets: {hardOffsetX:F2},{hardOffsetY:F2}");
                 e.Graphics.DrawImage(img, posX, posY, targetW, targetH);
             }
             e.HasMorePages = false;
