@@ -19600,6 +19600,9 @@ MonoBehaviour:
   errorMessageButton: {fileID: 529883101}
   selectedPrinter: 
   selectedPaperSize: 4x6
+  scaleToFill: 1
+  bleedFactor: 1.02
+  manualOffset: {x: 0, y: 10}
   simulationMode: 0
   simulateReady: 0
 --- !u!1 &1990448606

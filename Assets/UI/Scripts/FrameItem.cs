@@ -67,6 +67,15 @@ class FrameItem : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler,IPoin
             }
         }
 
+        // **FIX: Reset sprite and alpha to prevent stale thumbnails when reusing pooled items**
+        if (frameImg != null)
+        {
+            frameImg.sprite = null;
+            Color c = frameImg.color;
+            c.a = 0f;
+            frameImg.color = c;
+        }
+
         int slotCount = frame.number_of_layouts > 0
                             ? frame.number_of_layouts
                             : Mathf.Max(1, frame.number_of_shots);
@@ -77,8 +86,6 @@ class FrameItem : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler,IPoin
             ? PhotoBoothFrameManager.Instance.ResolveUrl(frame.asset_path)
             : frame.asset_path;
         cachedFrameAssetPath = FrameCacheManager.GetCachedTexturePath(resolvedAssetUrl);
-
-
     }
 
     public void CreateLayoutSlots(int count)

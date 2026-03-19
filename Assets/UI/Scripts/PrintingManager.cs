@@ -12,6 +12,7 @@ using UnityEngine.UI;
 
 public class PrintingManager : MonoBehaviour
 {
+    
     public static PrintingManager Instance;
 
     [Header("UI")]
@@ -27,8 +28,11 @@ public class PrintingManager : MonoBehaviour
     [Header("Printer")]
     public string selectedPrinter;
     public string selectedPaperSize = "4x6"; // Default
-    
-
+    [Header("Printer Config")]
+    public bool scaleToFill = true; 
+    [Range(1.0f, 1.15f)]
+    public float bleedFactor = 1.04f; 
+    public Vector2 manualOffset = Vector2.zero;
     public enum PrinterSimulationMode { Disable, SimulateSuccess, SimulatePaperJam, SimulatePaperOut, SimulateOffline }
     public PrinterSimulationMode simulationMode = PrinterSimulationMode.Disable;
     public bool simulateReady = false; // Legacy - will be replaced by simulationMode
@@ -79,17 +83,29 @@ public class PrintingManager : MonoBehaviour
 
         printerDropdown.AddOptions(printers);
 
-        // Restore last selected printer
-        if (PlayerPrefs.HasKey(PRINTER_PREF))
+        // Priority 1: Use value from Inspector if set correctly
+        int inspectorIndex = printers.IndexOf(selectedPrinter);
+        if (inspectorIndex >= 0)
         {
+            printerDropdown.value = inspectorIndex;
+        }
+        else if (PlayerPrefs.HasKey(PRINTER_PREF))
+        {
+            // Priority 2: Fallback to PlayerPrefs
             selectedPrinter = PlayerPrefs.GetString(PRINTER_PREF);
             int index = printers.IndexOf(selectedPrinter);
             if (index >= 0)
                 printerDropdown.value = index;
+            else if (printers.Count > 0) // Fallback to first printer if PlayerPrefs value is invalid
+            {
+                selectedPrinter = printers[0];
+                printerDropdown.value = 0;
+            }
         }
-        else if (printers.Count > 0)
+        else if (printers.Count > 0) // Fallback to first printer if no Inspector or PlayerPrefs value
         {
             selectedPrinter = printers[0];
+            printerDropdown.value = 0;
         }
 
         printerDropdown.onValueChanged.AddListener(OnPrinterChanged);
@@ -106,11 +122,29 @@ public class PrintingManager : MonoBehaviour
         
         paperSizeDropdown.AddOptions(sizes);
 
-        if (PlayerPrefs.HasKey(PAPER_SIZE_PREF))
+        // Priority 1: Use value from Inspector if set correctly
+        int inspectorIndex = sizes.IndexOf(selectedPaperSize);
+        if (inspectorIndex >= 0)
         {
+            paperSizeDropdown.value = inspectorIndex;
+            // Also ensure paperIsLandscape is set initially based on this
+        }
+        else if (PlayerPrefs.HasKey(PAPER_SIZE_PREF))
+        {
+            // Priority 2: Fallback to PlayerPrefs
             selectedPaperSize = PlayerPrefs.GetString(PAPER_SIZE_PREF);
             int index = sizes.IndexOf(selectedPaperSize);
             if (index >= 0) paperSizeDropdown.value = index;
+            else if (sizes.Count > 0) // Fallback to first size if PlayerPrefs value is invalid
+            {
+                selectedPaperSize = sizes[0];
+                paperSizeDropdown.value = 0;
+            }
+        }
+        else if (sizes.Count > 0) // Fallback to first size if no Inspector or PlayerPrefs value
+        {
+            selectedPaperSize = sizes[0];
+            paperSizeDropdown.value = 0;
         }
 
         paperSizeDropdown.onValueChanged.AddListener(OnPaperSizeChanged);
@@ -250,22 +284,26 @@ public class PrintingManager : MonoBehaviour
             UnityEngine.Debug.Log($"   [PrintPage] VisibleClipBounds: {e.Graphics.VisibleClipBounds.Width:F1}x{e.Graphics.VisibleClipBounds.Height:F1}");
 
             // --- BORDERLESS BOUNDS SELECTION ---
-            System.Drawing.RectangleF bounds = e.PageBounds; 
+            // We use VisibleClipBounds because on "Borderless" photo printers (like Epson SL-D500), 
+            // the driver expands the printable area slightly BEYOND the paper edges for overscan.
+            System.Drawing.RectangleF clip = e.Graphics.VisibleClipBounds;
+            System.Drawing.RectangleF bounds = new System.Drawing.RectangleF(0, 0, clip.Width, clip.Height);
 
-            // --- DRIVER QUIRK HEALING ---
-            // If we requested Landscape and the driver says it is Landscape (e.PageSettings.Landscape == true)
-            // but the Width is still smaller than Height, the driver "lied" about the bounds.
-            // We must manually rotate the Graphics context and swap our logical bounds.
-            if (isLandscape && bounds.Width < bounds.Height)
+            // --- DRIVER QUIRK HEALING (ORIENTATION) ---
+            // Detect if the physical paper orientation mismatch the requested logical orientation.
+            bool paperIsLandscape = e.PageBounds.Width > e.PageBounds.Height;
+            
+            if (isLandscape != paperIsLandscape)
             {
-                UnityEngine.Debug.Log("   [PrintPage] Driver Bounds Mismatch! Applying manual 90deg Graphics transform.");
-                e.Graphics.TranslateTransform(bounds.Width, 0);
-                e.Graphics.RotateTransform(90);
+                UnityEngine.Debug.Log($"   [PrintPage] Orientation Mismatch! LogicalL:{isLandscape} vs PaperL:{paperIsLandscape}. Applying Graphics transform.");
+                
+                // Rotate around the center of the real buffer
+                e.Graphics.TranslateTransform(clip.Width / 2f, clip.Height / 2f);
+                e.Graphics.RotateTransform(isLandscape ? 90 : -90);
+                e.Graphics.TranslateTransform(-clip.Height / 2f, -clip.Width / 2f);
                 
                 // Swap bounds logically for our scaling calculations
-                float oldW = bounds.Width;
-                bounds.Width = bounds.Height;
-                bounds.Height = oldW;
+                bounds = new System.Drawing.RectangleF(0, 0, clip.Height, clip.Width);
             }
 
             // Convert Texture2D to System.Drawing.Image (Memory Stream)
@@ -273,69 +311,38 @@ public class PrintingManager : MonoBehaviour
             using (MemoryStream ms = new MemoryStream(bytes))
             using (System.Drawing.Image img = System.Drawing.Image.FromStream(ms))
             {
-                // Orientation sanity check/correction
+                // Orientation sanity check/correction for the Image itself
                 bool imageIsLandscape = img.Width > img.Height;
-                bool paperIsLandscape = bounds.Width > bounds.Height;
+                bool targetIsLandscape = bounds.Width > bounds.Height;
 
-                UnityEngine.Debug.Log($"   [PrintPage] Image: {img.Width}x{img.Height} (L:{imageIsLandscape}) | Paper: {bounds.Width}x{bounds.Height} (L:{paperIsLandscape})");
+                UnityEngine.Debug.Log($"   [PrintPage] Image: {img.Width}x{img.Height} (L:{imageIsLandscape}) | Target: {bounds.Width:F1}x{bounds.Height:F1} (L:{targetIsLandscape})");
 
-                if (imageIsLandscape != paperIsLandscape)
+                if (imageIsLandscape != targetIsLandscape)
                 {
-                    UnityEngine.Debug.Log("   [PrintPage] Orientation mismatch! Rotating image 90 degrees.");
+                    UnityEngine.Debug.Log("   [PrintPage] Image rotation required to match target.");
                     img.RotateFlip(System.Drawing.RotateFlipType.Rotate90FlipNone);
                 }
 
-                // --- HARDCORE BORDERLESS LOGIC ---
-                // 1. Fill the page (Crop to Fill) instead of fitting (Shrink to Fit)
-                float scaleX = (float)bounds.Width / img.Width;
-                float scaleY = (float)bounds.Height / img.Height;
+                // --- SCALE CALCULATION ---
+                float scaleX = bounds.Width / img.Width;
+                float scaleY = bounds.Height / img.Height;
                 
-                // Use the LARGER scale to ensure the image fills the entire page (Crop to Fill)
-                float scale = Math.Max(scaleX, scaleY); 
+                // Toggle between 'Fit' (see whole image) and 'Fill' (no white borders)
+                float scale = scaleToFill ? Mathf.Max(scaleX, scaleY) : Mathf.Min(scaleX, scaleY);
 
-                // 2. Add "Bleed/Overscan" (Scale up slightly to cover hardware slippage)
-                // 1.04f (4%) is a good balance for SL-D500 and Canon.
-                float bleedFactor = 1.04f; 
-                scale *= bleedFactor;
-                
+                // Safety Bleed: Adjustable from Inspector (1.02 = 2%, 1.08 = 8%, etc)
+                scale *= bleedFactor; 
+
                 float targetW = img.Width * scale;
                 float targetH = img.Height * scale;
 
-                // 3. IMPROVED CENTERING & MARGIN HANDLING
-                // Center relative to physical page origin
-                float posX = (bounds.Width - targetW) / 2f;
-                float posY = (bounds.Height - targetH) / 2f;
+                // 3. CENTERING + MANUAL NUDGE
+                // 'posX' and 'posY' are in 1/100th inch units.
+                // Positive X moves right, Positive Y moves down.
+                float posX = (bounds.Width - targetW) / 2f + manualOffset.x;
+                float posY = (bounds.Height - targetH) / 2f + manualOffset.y;
 
-                // Adjust for HardMarginX/Y (The "Hardware Shift")
-                // On Epson printers, PrintableArea.X/Y is the most reliable "start point" off the edge.
-                float hardOffsetX = e.PageSettings.PrintableArea.X;
-                float hardOffsetY = e.PageSettings.PrintableArea.Y;
-                
-                // If the printer reports 0 for PrintableArea.X, fallback to HardMarginX
-                if (hardOffsetX == 0) hardOffsetX = e.PageSettings.HardMarginX;
-                if (hardOffsetY == 0) hardOffsetY = e.PageSettings.HardMarginY;
-
-                // SPECIAL FIX: If the image shifted LEFT causing a RIGHT white border, 
-                // it means hardOffsetX was too HIGH (we over-compensated).
-                // If it's still shifted, we might need a manual offset or a different inference.
-                
-                // FALLBACK: If driver reports 0 margins but VisibleClipBounds is smaller than PageBounds,
-                // it means the driver is hiding the margins from the properties but still clipping.
-                if (hardOffsetX == 0 && e.Graphics.VisibleClipBounds.Width < bounds.Width)
-                {
-                    hardOffsetX = (bounds.Width - e.Graphics.VisibleClipBounds.Width) / 2f;
-                    UnityEngine.Debug.Log($"   [PrintPage] Inferred HardMarginX: {hardOffsetX:F2}");
-                }
-                if (hardOffsetY == 0 && e.Graphics.VisibleClipBounds.Height < bounds.Height)
-                {
-                    hardOffsetY = (bounds.Height - e.Graphics.VisibleClipBounds.Height) / 2f;
-                    UnityEngine.Debug.Log($"   [PrintPage] Inferred HardMarginY: {hardOffsetY:F2}");
-                }
-
-                posX -= hardOffsetX;
-                posY -= hardOffsetY;
-
-                UnityEngine.Debug.Log($"   [PrintPage] Result -> Pos:({posX:F2}, {posY:F2}) Size:{targetW:F2}x{targetH:F2} | DriverOffsets: {hardOffsetX:F2},{hardOffsetY:F2}");
+                UnityEngine.Debug.Log($"   [PrintPage] Result -> Pos:({posX:F2}, {posY:F2}) Size:{targetW:F2}x{targetH:F2}");
                 e.Graphics.DrawImage(img, posX, posY, targetW, targetH);
             }
             e.HasMorePages = false;

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections;
 using System.Text;
 using System.Threading.Tasks;
@@ -482,6 +482,13 @@ public class LoginManager : MonoBehaviour
     private void ActivateFrameSelection(bool isGuest)
     {
         Debug.Log($"🖼️ Activating frame selection (Guest: {isGuest})");
+
+        // **FIX: Ensure boothID is synchronized before opening selection panel**
+        boothId = PlayerPrefs.GetString("booth_id", "test_booth_001");
+        if (frameManager != null)
+        {
+            frameManager.SetBoothID(boothId);
+        }
 
         qrPanel.SetActive(false);
         frameSelectionPanel.SetActive(true);

@@ -237,6 +237,13 @@ public class PhotoBoothFrameManager : MonoBehaviour
     {
         Debug.Log("🔄 Resetting to default frame category...");
 
+        // **FIX: Ensure boothID is synced from PlayerPrefs at session start**
+        string savedBoothId = PlayerPrefs.GetString("booth_id", "");
+        if (!string.IsNullOrEmpty(savedBoothId))
+        {
+            boothID = savedBoothId;
+        }
+
         // Clear any selected frame
         if (currentSelectedFrame != null)
         {
@@ -380,12 +387,20 @@ public class PhotoBoothFrameManager : MonoBehaviour
                     string json = request.downloadHandler.text;
                     cachedResponse = JsonUtility.FromJson<FrameResponse>(json);
 
-                    // Use correct field based on category
+                    // **FIX: Robustly handle My Frames - check both data.my_frames and data.frames**
                     List<Frame> framesToDisplay = null;
 
                     if (currentCategory == "myframe")
                     {
-                        framesToDisplay = cachedResponse?.data?.my_frames;
+                        // Some APIs might return user frames in 'my_frames', others might use the standard 'frames' field.
+                        // We check both for maximum safety.
+                        if (cachedResponse?.data != null)
+                        {
+                            if (cachedResponse.data.my_frames != null && cachedResponse.data.my_frames.Count > 0)
+                                framesToDisplay = cachedResponse.data.my_frames;
+                            else
+                                framesToDisplay = cachedResponse.data.frames;
+                        }
                     }
                     else
                     {
@@ -420,10 +435,22 @@ public class PhotoBoothFrameManager : MonoBehaviour
 
         cachedResponse = JsonUtility.FromJson<FrameResponse>(json);
 
-        // Use correct field based on category
-        List<Frame> framesToDisplay = (category == "myframe")
-            ? cachedResponse?.data?.my_frames
-            : cachedResponse?.data?.frames;
+        // **FIX: Robustly handle My Frames from cache as well**
+        List<Frame> framesToDisplay = null;
+        if (category == "myframe")
+        {
+            if (cachedResponse?.data != null)
+            {
+                if (cachedResponse.data.my_frames != null && cachedResponse.data.my_frames.Count > 0)
+                    framesToDisplay = cachedResponse.data.my_frames;
+                else
+                    framesToDisplay = cachedResponse.data.frames;
+            }
+        }
+        else
+        {
+            framesToDisplay = cachedResponse?.data?.frames;
+        }
 
         if (framesToDisplay != null && boothID == targetBoothID)
             DisplayFrames(framesToDisplay);
@@ -526,7 +553,8 @@ public class PhotoBoothFrameManager : MonoBehaviour
         // Update scroll button visibility based on frame count
         UpdateScrollButtons(frames.Count);
 
-        StartCoroutine(DownloadThumbnailsAndAssetsParallel(currentFrameItems));
+        // **FIX: Pass a COPY of the list to the coroutine to safely handle rapid navigation**
+        StartCoroutine(DownloadThumbnailsAndAssetsParallel(new List<FrameItem>(currentFrameItems)));
     }
 
     private void UpdateScrollButtons(int frameCount)
@@ -582,10 +610,11 @@ public class PhotoBoothFrameManager : MonoBehaviour
             if (!string.IsNullOrEmpty(assetUrl) && !assetCache.ContainsKey(assetUrl) && !downloadingAssets.Contains(assetUrl)) totalDownloadCount++;
         }
 
+        // **FIX: Removed the yield break here. We MUST continue to the next loop**
+        // even if totalDownloadCount is 0, so that cached items can be applied to the UI.
         if (totalDownloadCount == 0)
         {
             DownloadProgress = 1f;
-            yield break;
         }
 
         DownloadProgress = 0f;
