@@ -81,6 +81,8 @@ public class PhotoShootingManager : MonoBehaviour
     private List<int> uniqueIndices = new List<int>();
     private List<RawImage> activeLivePreviews = new List<RawImage>();
     private GameObject frameOverlayObject;
+    private float currentCanvasScale = 1f;
+    private Vector2 currentFrameSize = new Vector2(1920, 1080);
 
     private Texture2D finalComposedImageForPrint;
     private GameObject instantiatedFrameObject;
@@ -278,7 +280,71 @@ public class PhotoShootingManager : MonoBehaviour
             0,
             SpriteMeshType.FullRect
         );
+        
+        // Recalculate scale based on actual texture size
+        UpdateCanvasScale(tex);
+        
         CreateFramePreviewImage(frameSprite);
+    }
+
+    private void UpdateCanvasScale(Texture2D tex)
+    {
+        if (tex == null) return;
+        
+        currentFrameSize = new Vector2(tex.width, tex.height);
+        
+        string sceneName = UnityEngine.SceneManagement.SceneManager.GetActiveScene().name;
+        bool isPortrait = sceneName.IndexOf("Portrait", System.StringComparison.OrdinalIgnoreCase) >= 0;
+        
+        float targetW = isPortrait ? 1080f : 1920f;
+        float targetH = isPortrait ? 1920f : 1080f;
+        
+        currentCanvasScale = Mathf.Min(targetW / tex.width, targetH / tex.height);
+        
+        Debug.Log($"📏 [PSM] Updated Canvas Scale: {currentCanvasScale:F4} | Texture: {tex.width}x{tex.height} | Target: {targetW}x{targetH}");
+        
+        // Update any existing active previews (in case they were created before texture loaded)
+        RefreshPreviewPlacements();
+    }
+
+    private void RefreshPreviewPlacements()
+    {
+        // 1. Update cameraPreview and capturePreview
+        SetCameraPreviewAspect(0f); // Aspect is calculated inside
+
+        // 2. Update all live previews in FramePreview
+        if (FramePreview != null && currentShotIndex < uniqueIndices.Count)
+        {
+            int currentIndex = uniqueIndices[currentShotIndex];
+            var currentPlaceholders = placeholders.Where(p => p.placeholder_index == currentIndex).ToList();
+            
+            // We need to find the game objects created for these
+            foreach (var ph in currentPlaceholders)
+            {
+                Transform t = FramePreview.transform.Find($"LivePreview_Slot_{ph.frame_asset_id}");
+                if (t != null)
+                {
+                    RectTransform rt = t.GetComponent<RectTransform>();
+                    ApplyPlaceholderToRectTransform(rt, ph);
+                }
+            }
+        }
+    }
+
+    private void ApplyPlaceholderToRectTransform(RectTransform rt, FrameAsset ph)
+    {
+        if (rt == null || ph == null) return;
+        
+        float w = float.Parse(ph.width);
+        float h = float.Parse(ph.height);
+        
+        rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 0.5f);
+        rt.pivot = new Vector2(0.5f, 0.5f);
+        
+        rt.sizeDelta = new Vector2(w * currentCanvasScale, h * currentCanvasScale);
+        rt.anchoredPosition = new Vector2(ph.x * currentCanvasScale, ph.y * currentCanvasScale);
+        rt.localRotation = Quaternion.Euler(0, 0, ph.rotation);
+        rt.localScale = new Vector3(ph.scale, ph.scale, 1f);
     }
 
     private void CreateFramePreviewImage(Sprite sprite)
@@ -590,12 +656,7 @@ public class PhotoShootingManager : MonoBehaviour
                 activeLivePreviews.Add(ri);
 
                 RectTransform rt = previewObj.GetComponent<RectTransform>();
-                rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 0.5f);
-                rt.pivot = new Vector2(0.5f, 0.5f);
-                rt.sizeDelta = new Vector2(float.Parse(ph.width), float.Parse(ph.height));
-                rt.anchoredPosition = new Vector2(ph.x, ph.y);
-                rt.localRotation = Quaternion.Euler(0, 0, ph.rotation);
-                rt.localScale = new Vector3(ph.scale, ph.scale, 1f);
+                ApplyPlaceholderToRectTransform(rt, ph);
             }
 
             // Ensure frame is on top
@@ -702,12 +763,7 @@ public class PhotoShootingManager : MonoBehaviour
                 img.preserveAspect = false;
 
                 RectTransform rt = photoObj.GetComponent<RectTransform>();
-                rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 0.5f);
-                rt.pivot = new Vector2(0.5f, 0.5f);
-                rt.sizeDelta = new Vector2(float.Parse(ph.width), float.Parse(ph.height));
-                rt.anchoredPosition = new Vector2(ph.x, ph.y);
-                rt.localRotation = Quaternion.Euler(0, 0, ph.rotation);
-                rt.localScale = new Vector3(ph.scale, ph.scale, 1f);
+                ApplyPlaceholderToRectTransform(rt, ph);
             }
             if (frameOverlayObject != null) frameOverlayObject.transform.SetAsLastSibling();
         }
@@ -939,14 +995,14 @@ public class PhotoShootingManager : MonoBehaviour
         capRect.anchorMin = capRect.anchorMax = new Vector2(0.5f, 0.5f);
         capRect.pivot = new Vector2(0.5f, 0.5f);
 
-        camRect.sizeDelta = new Vector2(width, height);
-        capRect.sizeDelta = new Vector2(width, height);
+        camRect.sizeDelta = new Vector2(width * currentCanvasScale, height * currentCanvasScale);
+        capRect.sizeDelta = new Vector2(width * currentCanvasScale, height * currentCanvasScale);
 
         if (currentShotIndex < placeholders.Count)
         {
             var ph = placeholders[currentShotIndex];
-            camRect.anchoredPosition = new Vector2(ph.x, ph.y);
-            capRect.anchoredPosition = new Vector2(ph.x, ph.y);
+            camRect.anchoredPosition = new Vector2(ph.x * currentCanvasScale, ph.y * currentCanvasScale);
+            capRect.anchoredPosition = new Vector2(ph.x * currentCanvasScale, ph.y * currentCanvasScale);
             camRect.localRotation = Quaternion.Euler(0, 0, ph.rotation);
             capRect.localRotation = Quaternion.Euler(0, 0, ph.rotation);
             camRect.localScale = new Vector3(ph.scale, ph.scale, 1f);

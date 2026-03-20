@@ -19605,6 +19605,13 @@ MonoBehaviour:
   manualOffset: {x: 0, y: 10}
   simulationMode: 0
   simulateReady: 0
+  useEpsonSLD1000Profile: 1
+  borderlessMode: 0
+  retainSizeExpansionMm: 2.3
+  landscapeKeywords:
+  - landscape
+  - horizontal
+  - wide
 --- !u!1 &1990448606
 GameObject:
   m_ObjectHideFlags: 0

@@ -610,8 +610,7 @@ public class PhotoBoothFrameManager : MonoBehaviour
             if (!string.IsNullOrEmpty(assetUrl) && !assetCache.ContainsKey(assetUrl) && !downloadingAssets.Contains(assetUrl)) totalDownloadCount++;
         }
 
-        // **FIX: Removed the yield break here. We MUST continue to the next loop**
-        // even if totalDownloadCount is 0, so that cached items can be applied to the UI.
+      
         if (totalDownloadCount == 0)
         {
             DownloadProgress = 1f;
