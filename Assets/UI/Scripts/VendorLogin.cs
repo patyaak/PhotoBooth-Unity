@@ -1,4 +1,4 @@
-﻿using System.Collections;
+using System.Collections;
 using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
@@ -15,6 +15,7 @@ public class VendorLogin : MonoBehaviour
     public TextMeshProUGUI loadingPercentage;
     public float loadingAnimationSpeed = 50f; // Speed for percentage count-up
     public GameObject wifiErrorGO;
+    public TMP_Text versionText; // Display app version (v1.0-beta)
 
     [Header("Theme References (Image Components)")]
     public Image backgroundImage;
@@ -85,6 +86,12 @@ public class VendorLogin : MonoBehaviour
                 Debug.Log("🌐 Internet available — loading booth data from server");
                 StartCoroutine(LoadBoothData(savedBoothID));
             }
+        }
+
+        // Set version display automatically from Project Settings
+        if (versionText != null)
+        {
+            versionText.text = $"v{Application.version}";
         }
     }
 
@@ -312,8 +319,18 @@ public class VendorLogin : MonoBehaviour
                         var fetchCoroutine = StartCoroutine(frameManager.FetchFramesFromServer());
 
                         // While downloading thumbnails/assets, update progress smoothly
+                        float startTime = Time.time;
+                        float timeoutDuration = 30f; // 30-second safety timeout
+
                         while (displayedProgress < 100)
                         {
+                            // ⚠️ SAFETY TIMEOUT: If it's taking too long (e.g. 30s), break out so the app doesn't hang forever
+                            if (Time.time - startTime > timeoutDuration)
+                            {
+                                Debug.LogWarning("⏱️ Loading took too long (30s timeout) — proceeding to main panel anyway to prevent hang.");
+                                break;
+                            }
+
                             targetProgress = 20f + (frameManager.DownloadProgress * 80f);
                             
                             // Smoothly move towards target

@@ -20,7 +20,7 @@ public class ApiConfig : ScriptableObject
         "https://photo-stg-api.chvps3.aozora-okinawa.com";
 
     public string productionBaseURL =
-        "https://photo-api.yourdomain.com";
+        "https://photoapi.up-t.jp";
 
     public string BaseURL
     {

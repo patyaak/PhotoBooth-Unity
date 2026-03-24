@@ -326,7 +326,11 @@ public class PhotoBoothFrameManager : MonoBehaviour
    
     public IEnumerator FetchFramesFromServer()
     {
-        if (isFetching || string.IsNullOrEmpty(boothID)) yield break;
+        if (isFetching || string.IsNullOrEmpty(boothID))
+        {
+            DownloadProgress = 1f; // Ensure progress isn't stuck if we exit early
+            yield break;
+        }
 
         isFetching = true;
         string currentBoothAtStart = boothID;
@@ -352,6 +356,7 @@ public class PhotoBoothFrameManager : MonoBehaviour
             else
             {
                 ShowEmptyState("Please log in to view your frames");
+                DownloadProgress = 1f; // ✅ Ensure progress completes even for empty states
                 isFetching = false;
                 yield break;
             }
@@ -371,6 +376,7 @@ public class PhotoBoothFrameManager : MonoBehaviour
                 if (boothID != currentBoothAtStart)
                 {
                     Debug.LogWarning("Booth ID changed during fetch. Aborting.");
+                    DownloadProgress = 1f; // Ensure progress completes
                     return;
                 }
 
@@ -428,10 +434,18 @@ public class PhotoBoothFrameManager : MonoBehaviour
 
     public IEnumerator LoadFramesFromCache(string category, string targetBoothID)
     {
-        if (!FrameCacheManager.HasCachedData(category, targetBoothID)) yield break;
+        if (!FrameCacheManager.HasCachedData(category, targetBoothID))
+        {
+            DownloadProgress = 1f; // Ensure progress isn't stuck if we exit early
+            yield break;
+        }
 
         string json = FrameCacheManager.LoadCachedJSON(category, targetBoothID);
-        if (string.IsNullOrEmpty(json)) yield break;
+        if (string.IsNullOrEmpty(json))
+        {
+            DownloadProgress = 1f; // Ensure progress isn't stuck if we exit early
+            yield break;
+        }
 
         cachedResponse = JsonUtility.FromJson<FrameResponse>(json);
 
@@ -502,6 +516,7 @@ public class PhotoBoothFrameManager : MonoBehaviour
         {
             ShowEmptyState(currentCategory == "myframe" ? "You have no frames yet" : "No frames available");
             UpdateScrollButtons(0); // Hide scroll buttons when empty
+            DownloadProgress = 1f; // ✅ Ensure progress completes if there are no frames to download
             return;
         }
 
