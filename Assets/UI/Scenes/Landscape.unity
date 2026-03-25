@@ -19740,13 +19740,13 @@ MonoBehaviour:
   selectedPrinter: 
   selectedPaperSize: 4x6
   scaleToFill: 1
-  bleedFactor: 1.02
-  manualOffset: {x: 0, y: 10}
+  bleedFactor: 1
+  manualOffset: {x: 0, y: 0}
   simulationMode: 0
   simulateReady: 0
   useEpsonSLD1000Profile: 1
   borderlessMode: 0
-  retainSizeExpansionMm: 2.3
+  retainSizeExpansionMm: 0.1
   landscapeKeywords:
   - landscape
   - horizontal
