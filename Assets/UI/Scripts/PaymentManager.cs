@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Text;
@@ -327,7 +327,7 @@ public class PaymentManager : MonoBehaviour
 
         await CloseWebSocketAsync();
 
-        string wsUrl = $"wss://photo-stg-api.chvps3.aozora-okinawa.com/app/{LoginManager.Instance.boothKey}";
+        string wsUrl = API.GetWebSocketURL(true, LoginManager.Instance ? LoginManager.Instance.boothKey : "");
         ws = new WebSocket(wsUrl);
 
         ws.OnOpen += () => { isWebSocketConnected = true; Debug.Log("Payment WS Connected!"); SendPaymentSubscription(orderId); };

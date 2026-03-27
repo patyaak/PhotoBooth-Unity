@@ -310,8 +310,7 @@ public class LoginManager : MonoBehaviour
             return;
         }
 
-        string protocol = useSecureWebSocket ? "wss" : "ws";
-        string wsUrl = $"{protocol}://photo-stg-api.chvps3.aozora-okinawa.com/app/{boothKey}";
+        string wsUrl = API.GetWebSocketURL(useSecureWebSocket, boothKey);
 
         Debug.Log($"🔌 Connecting to WebSocket: {wsUrl}");
 

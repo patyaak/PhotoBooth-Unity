@@ -1,4 +1,4 @@
-﻿using UnityEngine;
+using UnityEngine;
 
 public static class API
 {
@@ -30,5 +30,10 @@ public static class API
         {
             return Config.BaseURL;
         }
+    }
+
+    public static string GetWebSocketURL(bool secure, string boothKey)
+    {
+        return Config.GetWebSocketURL(secure, boothKey);
     }
 }

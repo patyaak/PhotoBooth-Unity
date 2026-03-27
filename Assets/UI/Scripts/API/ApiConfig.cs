@@ -33,4 +33,14 @@ public class ApiConfig : ScriptableObject
             return url.TrimEnd('/');
         }
     }
+
+    public string GetWebSocketURL(bool secure, string boothKey)
+    {
+        string protocol = secure ? "wss" : "ws";
+        string host = environment == EnvironmentType.Staging
+            ? "photo-stg-api.chvps3.aozora-okinawa.com"
+            : "photoapi.up-t.jp";
+
+        return $"{protocol}://{host}/app/{boothKey}";
+    }
 }
