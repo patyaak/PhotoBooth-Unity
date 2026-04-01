@@ -20019,7 +20019,7 @@ MonoBehaviour:
   pollIntervalSeconds: 30
   lowThreshold: 20
   emptyThreshold: 5
-  simulatedState: 0
+  simulatedState: 2
 --- !u!1 &1990448606
 GameObject:
   m_ObjectHideFlags: 0

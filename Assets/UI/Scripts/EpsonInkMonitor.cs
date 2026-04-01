@@ -202,18 +202,27 @@ public class EpsonInkMonitor : MonoBehaviour
             var sb = new System.Text.StringBuilder();
             sb.AppendLine("Cyan: <color=#00FF00>OK</color> (85%)");
             sb.AppendLine("Magenta: <color=#00FF00>OK</color> (72%)");
-            sb.AppendLine("Yellow: <color=#00FF00>OK</color> (90%)");
             
             if (simEmpty)
-                sb.AppendLine("Black: <color=#FF0000>Empty</color> (2%)");
+            {
+                sb.AppendLine("Yellow: <color=#FFFF00>Low</color> (12%)");
+                sb.AppendLine("Black: <color=#FF0000>Empty</color> (0%)");
+            }
             else if (simLow)
-                sb.AppendLine("Black: <color=#FFFF00>Low</color> (15%)");
-            else
+            {
+                sb.AppendLine("Yellow: <color=#FFFF00>Low</color> (18%)");
                 sb.AppendLine("Black: <color=#00FF00>OK</color> (60%)");
+            }
+            else
+            {
+                sb.AppendLine("Yellow: <color=#00FF00>OK</color> (90%)");
+                sb.AppendLine("Black: <color=#00FF00>OK</color> (60%)");
+            }
 
             sb.AppendLine("Light Cyan: <color=#00FF00>OK</color> (95%)");
             sb.AppendLine("Light Magenta: <color=#00FF00>OK</color> (88%)");
             sb.AppendLine("Maint. Tank: <color=#00FF00>OK</color> (80%)");
+
 
             FireIfChanged(simLow, simEmpty, sb.ToString().Trim());
             return;
