@@ -198,10 +198,24 @@ public class EpsonInkMonitor : MonoBehaviour
         {
             bool simLow   = simulatedState == SimulatedInkState.SimulateLow;
             bool simEmpty = simulatedState == SimulatedInkState.SimulateEmpty;
-            string simMsg = simEmpty ? "Empty: Black"
-                          : simLow  ? "Low: Cyan"
-                          : string.Empty;
-            FireIfChanged(simLow, simEmpty, simMsg);
+
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine("Cyan: <color=#00FF00>OK</color> (85%)");
+            sb.AppendLine("Magenta: <color=#00FF00>OK</color> (72%)");
+            sb.AppendLine("Yellow: <color=#00FF00>OK</color> (90%)");
+            
+            if (simEmpty)
+                sb.AppendLine("Black: <color=#FF0000>Empty</color> (2%)");
+            else if (simLow)
+                sb.AppendLine("Black: <color=#FFFF00>Low</color> (15%)");
+            else
+                sb.AppendLine("Black: <color=#00FF00>OK</color> (60%)");
+
+            sb.AppendLine("Light Cyan: <color=#00FF00>OK</color> (95%)");
+            sb.AppendLine("Light Magenta: <color=#00FF00>OK</color> (88%)");
+            sb.AppendLine("Maint. Tank: <color=#00FF00>OK</color> (80%)");
+
+            FireIfChanged(simLow, simEmpty, sb.ToString().Trim());
             return;
         }
 
@@ -290,8 +304,7 @@ public class EpsonInkMonitor : MonoBehaviour
         bool anyLow   = false;
         bool anyEmpty = false;
         
-        System.Collections.Generic.List<string> emptyColors = new System.Collections.Generic.List<string>();
-        System.Collections.Generic.List<string> lowColors   = new System.Collections.Generic.List<string>();
+        var msgBuilder = new System.Text.StringBuilder();
 
         for (int i = 0; i < (int)dwInkCount; i++)
         {
@@ -305,29 +318,28 @@ public class EpsonInkMonitor : MonoBehaviour
             bool isEmpty  = (flags & INK_STATUS_EMPTY) != 0 || level <= emptyThreshold;
             bool isLow    = (flags & INK_STATUS_LOW)   != 0 || level <= lowThreshold;
 
+            string statusText;
+            string colorTag;
+
             if (isEmpty)
             {
                 anyEmpty = true;
-                emptyColors.Add(name);
+                statusText = "Empty";
+                colorTag = "#FF0000"; // Red
             }
             else if (isLow)
             {
                 anyLow = true;
-                lowColors.Add(name);
+                statusText = "Low";
+                colorTag = "#FFFF00"; // Yellow
             }
-        }
+            else
+            {
+                statusText = "OK";
+                colorTag = "#00FF00"; // Green
+            }
 
-        var msgBuilder = new System.Text.StringBuilder();
-        
-        if (emptyColors.Count > 0)
-        {
-            msgBuilder.Append($"Empty: {string.Join(", ", emptyColors)}");
-        }
-        
-        if (lowColors.Count > 0)
-        {
-            if (msgBuilder.Length > 0) msgBuilder.Append(" | "); 
-            msgBuilder.Append($"Low: {string.Join(", ", lowColors)}");
+            msgBuilder.AppendLine($"{name}: <color={colorTag}>{statusText}</color> ({level}%)");
         }
 
         // Maintenance tank (optional)
@@ -337,24 +349,38 @@ public class EpsonInkMonitor : MonoBehaviour
             int mtLevel = Marshal.ReadInt32(pInfo, mtOffset);
             if (mtLevel >= 0 && mtLevel <= 100)
             {
-                if (mtLevel <= emptyThreshold)
+                bool mtEmpty = mtLevel <= emptyThreshold;
+                bool mtLow   = mtLevel <= lowThreshold;
+
+                string statusText;
+                string colorTag;
+
+                if (mtEmpty)
                 {
                     anyEmpty = true;
-                    if (msgBuilder.Length > 0) msgBuilder.AppendLine();
-                    msgBuilder.AppendLine("🔴 Maintenance Tank Full!");
+                    statusText = "Empty/Full";
+                    colorTag = "#FF0000";
                 }
-                else if (mtLevel <= lowThreshold)
+                else if (mtLow)
                 {
                     anyLow = true;
-                    if (msgBuilder.Length > 0) msgBuilder.AppendLine();
-                    msgBuilder.AppendLine($"🟡 Maintenance Tank Nearly Full ({mtLevel}%)");
+                    statusText = "Nearly Full";
+                    colorTag = "#FFFF00";
                 }
+                else
+                {
+                    statusText = "OK";
+                    colorTag = "#00FF00";
+                }
+
+                msgBuilder.AppendLine($"Maint. Tank: <color={colorTag}>{statusText}</color> ({mtLevel}%)");
             }
         }
 
         string msg = msgBuilder.ToString().Trim();
         FireIfChanged(anyLow, anyEmpty, msg);
     }
+
 
     // ──────────────────────────────────────────────
     //  Event dispatch

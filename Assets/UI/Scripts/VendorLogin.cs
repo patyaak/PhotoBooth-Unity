@@ -127,20 +127,20 @@ public class VendorLogin : MonoBehaviour
     {
         if (inkLevelPanel == null) return;
 
-        bool showWarning = isLow || isEmpty;
-        inkLevelPanel.SetActive(showWarning);
+        // Show the panel literally whenever we have a status message (even if all is "OK")
+        bool hasStatus = !string.IsNullOrEmpty(message);
+        inkLevelPanel.SetActive(hasStatus);
 
         if (inkErrorMsg != null)
         {
-            inkErrorMsg.text = showWarning ? message : string.Empty;
-            // Colour: red for empty, orange-yellow for low
-            inkErrorMsg.color = isEmpty
-                ? new Color(0.9f, 0.15f, 0.15f)     // red
-                : new Color(0.95f, 0.65f, 0.05f);   // amber
+            inkErrorMsg.text = message;
+            // Set base color to white so rich text tags inside the message work properly
+            inkErrorMsg.color = Color.white;
         }
 
-        Debug.Log($"[VendorLogin] Ink panel {(showWarning ? "SHOWN" : "HIDDEN")} — low={isLow} empty={isEmpty}");
+        Debug.Log($"[VendorLogin] Ink panel {(hasStatus ? "SHOWN" : "HIDDEN")} | {message}");
     }
+
 
     // ──────────────────────────────────────────────
 
