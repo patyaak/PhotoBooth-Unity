@@ -307,6 +307,10 @@ public class PrintingManager : MonoBehaviour
         {
             pd.Print();
             LoggingManager.Instance?.LogPrinting(selectedPrinter, "success", selectedPaperSize, requestedLandscape);
+            
+            // 🔄 Instant ink check after job completes
+            if (EpsonInkMonitor.Instance != null)
+                EpsonInkMonitor.Instance.ForceCheck();
         }
         catch (Exception ex)
         {

@@ -41,6 +41,12 @@ public class VendorLogin : MonoBehaviour
 
     public GameObject errorPanel;
 
+    [Header("Ink Level UI")]
+    [Tooltip("Assign the 'InkLevel' GameObject from the vendor panel hierarchy.")]
+    public GameObject inkLevelPanel;
+    [Tooltip("Assign the 'errorMsg' TMP_Text child inside InkLevel.")]
+    public TMP_Text inkErrorMsg;
+
     // Currently logged-in booth ID
     private string currentBoothID = "";
 
@@ -69,6 +75,19 @@ public class VendorLogin : MonoBehaviour
 
         SetupSecretTrigger();
 
+        // Hide ink panel by default; it shows only when there is a warning
+        if (inkLevelPanel != null)
+            inkLevelPanel.SetActive(false);
+
+        // Subscribe to ink level events
+        EpsonInkMonitor.OnInkStatusChanged += OnInkStatusChanged;
+
+        // Display current ink state in case the monitor already ran
+        if (EpsonInkMonitor.Instance != null)
+            OnInkStatusChanged(EpsonInkMonitor.Instance.IsInkLow,
+                               EpsonInkMonitor.Instance.IsInkEmpty,
+                               EpsonInkMonitor.Instance.InkStatusMessage);
+
         // Auto-load last saved booth ID
         if (PlayerPrefs.HasKey("booth_id"))
         {
@@ -94,6 +113,36 @@ public class VendorLogin : MonoBehaviour
             versionText.text = $"v{Application.version}";
         }
     }
+
+    private void OnDestroy()
+    {
+        EpsonInkMonitor.OnInkStatusChanged -= OnInkStatusChanged;
+    }
+
+    // ──────────────────────────────────────────────
+    //  Ink Level
+    // ──────────────────────────────────────────────
+
+    private void OnInkStatusChanged(bool isLow, bool isEmpty, string message)
+    {
+        if (inkLevelPanel == null) return;
+
+        // Show the panel literally whenever we have a status message (even if all is "OK")
+        bool hasStatus = !string.IsNullOrEmpty(message);
+        inkLevelPanel.SetActive(hasStatus);
+
+        if (inkErrorMsg != null)
+        {
+            inkErrorMsg.text = message;
+            // Set base color to white so rich text tags inside the message work properly
+            inkErrorMsg.color = Color.white;
+        }
+
+        Debug.Log($"[VendorLogin] Ink panel {(hasStatus ? "SHOWN" : "HIDDEN")} | {message}");
+    }
+
+
+    // ──────────────────────────────────────────────
 
     void HandleOfflineStartup(string savedBoothID)
     {
