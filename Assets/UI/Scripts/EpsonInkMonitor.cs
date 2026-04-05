@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Runtime.InteropServices;
 using UnityEngine;
+using UnityEngine.Networking;
 
 /// <summary>
 /// Monitors Epson SL-D500 ink levels via PSM_SDK.dll.
@@ -18,7 +19,7 @@ public class EpsonInkMonitor : MonoBehaviour
 
     [Header("Polling")]
     [Tooltip("How often (in seconds) to poll the printer for ink state.")]
-    public float pollIntervalSeconds = 30f;
+    public float pollIntervalSeconds = 60f;
 
     [Header("Thresholds (0-100)")]
     [Tooltip("Ink % at which we raise an INK_LOW warning.")]
@@ -200,31 +201,43 @@ public class EpsonInkMonitor : MonoBehaviour
             bool simEmpty = simulatedState == SimulatedInkState.SimulateEmpty;
 
             var sb = new System.Text.StringBuilder();
-            sb.AppendLine("Cyan: <color=#00FF00>OK</color> (85%)");
-            sb.AppendLine("Magenta: <color=#00FF00>OK</color> (72%)");
+            var payload = new InkStatusPayload { inks = new System.Collections.Generic.List<InkEntry>() };
+
+            // Helper for simulation
+            void AddSim(string color, string status, string colorHex)
+            {
+                sb.AppendLine($"{color}: <color={colorHex}>{status}</color>");
+                payload.inks.Add(new InkEntry { color = color.ToLower().Replace(" ", ""), status = status.ToLower() });
+            }
+
+            AddSim("Cyan", "OK", "#00FF00");
+            AddSim("Magenta", "OK", "#00FF00");
             
             if (simEmpty)
             {
-                sb.AppendLine("Yellow: <color=#FFFF00>Low</color> (12%)");
-                sb.AppendLine("Black: <color=#FF0000>Empty</color> (0%)");
+                AddSim("Yellow", "Low", "#FFFF00");
+                AddSim("Black", "Empty", "#FF0000");
             }
             else if (simLow)
             {
-                sb.AppendLine("Yellow: <color=#FFFF00>Low</color> (18%)");
-                sb.AppendLine("Black: <color=#00FF00>OK</color> (60%)");
+                AddSim("Yellow", "Low", "#FFFF00");
+                AddSim("Black", "OK", "#00FF00");
             }
             else
             {
-                sb.AppendLine("Yellow: <color=#00FF00>OK</color> (90%)");
-                sb.AppendLine("Black: <color=#00FF00>OK</color> (60%)");
+                AddSim("Yellow", "OK", "#00FF00");
+                AddSim("Black", "OK", "#00FF00");
             }
 
-            sb.AppendLine("Light Cyan: <color=#00FF00>OK</color> (95%)");
-            sb.AppendLine("Light Magenta: <color=#00FF00>OK</color> (88%)");
-            sb.AppendLine("Maint. Tank: <color=#00FF00>OK</color> (80%)");
-
+            AddSim("Light Cyan", "OK", "#00FF00");
+            AddSim("Light Magenta", "OK", "#00FF00");
+            
+            // Maintenance tank
+            sb.AppendLine("Maint. Tank: <color=#00FF00>OK</color>");
+            payload.inks.Add(new InkEntry { color = "maintenance", status = "ok" });
 
             FireIfChanged(simLow, simEmpty, sb.ToString().Trim());
+            SendInkStatusToBackend(payload);
             return;
         }
 
@@ -314,6 +327,7 @@ public class EpsonInkMonitor : MonoBehaviour
         bool anyEmpty = false;
         
         var msgBuilder = new System.Text.StringBuilder();
+        var payload    = new InkStatusPayload { inks = new System.Collections.Generic.List<InkEntry>() };
 
         for (int i = 0; i < (int)dwInkCount; i++)
         {
@@ -348,7 +362,11 @@ public class EpsonInkMonitor : MonoBehaviour
                 colorTag = "#00FF00"; // Green
             }
 
-            msgBuilder.AppendLine($"{name}: <color={colorTag}>{statusText}</color> ({level}%)");
+            msgBuilder.AppendLine($"{name}: <color={colorTag}>{statusText}</color>");
+            payload.inks.Add(new InkEntry { 
+                color  = name.ToLower().Replace(" ", ""), 
+                status = statusText.ToLower() 
+            });
         }
 
         // Maintenance tank (optional)
@@ -363,31 +381,37 @@ public class EpsonInkMonitor : MonoBehaviour
 
                 string statusText;
                 string colorTag;
+                string apiStatus;
 
                 if (mtEmpty)
                 {
                     anyEmpty = true;
                     statusText = "Empty/Full";
                     colorTag = "#FF0000";
+                    apiStatus = "empty";
                 }
                 else if (mtLow)
                 {
                     anyLow = true;
                     statusText = "Nearly Full";
                     colorTag = "#FFFF00";
+                    apiStatus = "low";
                 }
                 else
                 {
                     statusText = "OK";
                     colorTag = "#00FF00";
+                    apiStatus = "ok";
                 }
 
-                msgBuilder.AppendLine($"Maint. Tank: <color={colorTag}>{statusText}</color> ({mtLevel}%)");
+                msgBuilder.AppendLine($"Maint. Tank: <color={colorTag}>{statusText}</color>");
+                payload.inks.Add(new InkEntry { color = "maintenance", status = apiStatus });
             }
         }
 
         string msg = msgBuilder.ToString().Trim();
         FireIfChanged(anyLow, anyEmpty, msg);
+        SendInkStatusToBackend(payload);
     }
 
 
@@ -413,5 +437,55 @@ public class EpsonInkMonitor : MonoBehaviour
 
         Debug.Log($"[EpsonInkMonitor] Status changed → low={isLow} empty={isEmpty} | {msg}");
         OnInkStatusChanged?.Invoke(isLow, isEmpty, msg);
+    }
+
+    private void SendInkStatusToBackend(InkStatusPayload payload)
+    {
+        string boothId = PlayerPrefs.GetString("booth_id", string.Empty);
+        if (string.IsNullOrEmpty(boothId))
+        {
+            Debug.LogWarning("[EpsonInkMonitor] Booth ID not found. Skipping backend report.");
+            return;
+        }
+
+        string json = JsonUtility.ToJson(payload);
+        string url = $"{API.BaseURL}/api/photobooth/booths/{boothId}/ink-status";
+
+        StartCoroutine(PostInkStatus(url, json));
+    }
+
+    private IEnumerator PostInkStatus(string url, string json)
+    {
+        using (UnityWebRequest request = new UnityWebRequest(url, "POST"))
+        {
+            byte[] bodyRaw = System.Text.Encoding.UTF8.GetBytes(json);
+            request.uploadHandler = new UploadHandlerRaw(bodyRaw);
+            request.downloadHandler = new DownloadHandlerBuffer();
+            request.SetRequestHeader("Content-Type", "application/json");
+
+            yield return request.SendWebRequest();
+
+            if (request.result != UnityWebRequest.Result.Success)
+                Debug.LogWarning($"[EpsonInkMonitor] Backend report failed: {request.error} | {request.downloadHandler.text}");
+            else
+                Debug.Log("[EpsonInkMonitor] Ink status reported successfully.");
+        }
+    }
+
+    // ──────────────────────────────────────────────
+    //  Backend serialization
+    // ──────────────────────────────────────────────
+
+    [Serializable]
+    public class InkStatusPayload
+    {
+        public System.Collections.Generic.List<InkEntry> inks;
+    }
+
+    [Serializable]
+    public class InkEntry
+    {
+        public string color;
+        public string status;
     }
 }

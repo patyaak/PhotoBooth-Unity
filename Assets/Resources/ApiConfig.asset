@@ -12,6 +12,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: ba99763ec59fd8b42b2fc38e98a82924, type: 3}
   m_Name: ApiConfig
   m_EditorClassIdentifier: 
-  environment: 1
+  environment: 0
   stagingBaseURL: https://photo-stg-api.chvps3.aozora-okinawa.com
   productionBaseURL: https://photoapi.up-t.jp

@@ -25,6 +25,7 @@ public class VendorLogin : MonoBehaviour
     public TMP_Text boothPrice;
     public GameObject priceParent; // Shared parent for both prices
     public TMP_Text gatchaPrice;
+    public TMP_Text printerStatusText;
 
     [Header("Hidden Buttons for switching vendor")]
     public Button logoBtn;
@@ -111,6 +112,17 @@ public class VendorLogin : MonoBehaviour
         if (versionText != null)
         {
             versionText.text = $"v{Application.version}";
+        }
+
+        // Printer Status Check
+        if (!PrintingManager.IsPrinterEnabled)
+        {
+            StartCoroutine(PrinterOffBlinkRoutine());
+        }
+        else if (printerStatusText != null)
+        {
+            printerStatusText.text = "";
+            printerStatusText.canvasRenderer.SetAlpha(0);
         }
     }
 
@@ -591,6 +603,38 @@ public class VendorLogin : MonoBehaviour
         if (loadingPercentage != null)
         {
             loadingPercentage.text = $"{Mathf.RoundToInt(percentage)}%";
+        }
+    }
+
+    /// <summary>
+    /// This method can be linked to your new "Borderless Toggle" button in the Unity Inspector.
+    /// </summary>
+    public void OnToggleBorderlessClicked()
+    {
+        Debug.Log("Button Clicked: OnToggleBorderlessClicked triggered.");
+        if (PrintingManager.Instance != null)
+        {
+            Debug.Log("PrintingManager instance found. Calling RunBorderlessToggle...");
+            PrintingManager.Instance.RunBorderlessToggle();
+        }
+        else
+        {
+            Debug.LogError("CRITICAL ERROR: PrintingManager instance not found in the scene! Ensure PrintingManager script is on an active GameObject.");
+        }
+    }
+
+    private IEnumerator PrinterOffBlinkRoutine()
+    {
+        if (printerStatusText == null) yield break;
+
+        printerStatusText.text = "Printer is off";
+
+        while (true)
+        {
+            printerStatusText.canvasRenderer.SetAlpha(1.0f);
+            yield return new WaitForSeconds(0.8f);
+            printerStatusText.canvasRenderer.SetAlpha(0.0f);
+            yield return new WaitForSeconds(0.5f);
         }
     }
 }

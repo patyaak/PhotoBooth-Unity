@@ -4,6 +4,7 @@ using System.Linq;
 using System.Collections;
 using System.Collections.Generic;
 using Newtonsoft.Json;
+using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Printing;
 using Image = System.Drawing.Image;
@@ -83,6 +84,7 @@ public class PrintingManager : MonoBehaviour
     // Public status
     public bool IsPrinting { get; private set; }
     public string LastStatus { get; private set; } = "Unknown";
+    public static bool IsPrinterEnabled => PlayerPrefs.GetInt("PrinterEnabled", 1) == 1;
 
     private Coroutine printerStatusRoutine;
 
@@ -268,6 +270,12 @@ public class PrintingManager : MonoBehaviour
             return;
         }
 
+        if (!IsPrinterEnabled)
+        {
+            UnityEngine.Debug.Log("⚠️ Printing skipped: Printer Testing Mode is OFF.");
+            return;
+        }
+
         bool requestedLandscape = IsLandscapeFrame(frameType);
 
         UnityEngine.Debug.Log(
@@ -322,6 +330,57 @@ public class PrintingManager : MonoBehaviour
         finally
         {
             pd.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// Executes the external batch file to toggle borderless settings for the currently selected printer.
+    /// </summary>
+    public void RunBorderlessToggle()
+    {
+        UnityEngine.Debug.Log("RunBorderlessToggle started. Current selectedPrinter: '" + selectedPrinter + "'");
+
+        if (string.IsNullOrEmpty(selectedPrinter))
+        {
+            UnityEngine.Debug.LogError("ERROR: No printer is currently selected! Make sure the printer dropdown is populated.");
+            return;
+        }
+
+        // Normalize the path to use Windows backslashes for CMD
+        string batPath = Path.Combine(Application.streamingAssetsPath, "ToggleBorderless.bat").Replace("/", "\\");
+        UnityEngine.Debug.Log("Looking for batch file at: " + batPath);
+
+        if (!File.Exists(batPath))
+        {
+            UnityEngine.Debug.LogError("ERROR: Batch file not found at StreamingAssets! Expected path: " + batPath);
+            return;
+        }
+
+        // Run the batch file with the selected printer as an argument
+        ProcessStartInfo startInfo = new ProcessStartInfo();
+        startInfo.FileName = "cmd.exe";
+        // Enclose the entire command in quotes to handle potential spaces in paths or printer names
+        startInfo.Arguments = $"/c \"\"{batPath}\" \"{selectedPrinter}\"\"";
+        startInfo.CreateNoWindow = false; 
+        startInfo.UseShellExecute = true;
+        startInfo.WindowStyle = ProcessWindowStyle.Normal;
+
+        try
+        {
+            UnityEngine.Debug.Log("Executing: cmd.exe " + startInfo.Arguments);
+            Process process = Process.Start(startInfo);
+            if (process != null)
+            {
+                UnityEngine.Debug.Log("🚀 Process started successfully. (ID: " + process.Id + ")");
+            }
+            else
+            {
+                UnityEngine.Debug.LogError("FAILED: Process started but returned null.");
+            }
+        }
+        catch (System.Exception e)
+        {
+            UnityEngine.Debug.LogError("CRITICAL ERROR: Failed to run batch file: " + e.Message);
         }
     }
 
@@ -774,8 +833,15 @@ public class PrintingManager : MonoBehaviour
 
         while (this != null && gameObject != null && gameObject.activeInHierarchy)
         {
-            if (!string.IsNullOrWhiteSpace(selectedPrinter) && !isErrorSnoozed)
-                CheckStatusNative();
+            if (IsPrinterEnabled)
+            {
+                if (!string.IsNullOrWhiteSpace(selectedPrinter) && !isErrorSnoozed)
+                    CheckStatusNative();
+            }
+            else
+            {
+                HideError(); // Keep error panel hidden if printer is disabled
+            }
 
             yield return wait;
         }

@@ -19942,6 +19942,8 @@ MonoBehaviour:
   logoBtn: {fileID: 6284285003830899591}
   vendorSwitchingButton: {fileID: 1661653798}
   errorPanel: {fileID: 1956347830}
+  inkLevelPanel: {fileID: 0}
+  inkErrorMsg: {fileID: 0}
   boothIdTextButton: {fileID: 1357673565}
 --- !u!4 &1925229620
 Transform:
@@ -22147,7 +22149,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 0
+  m_IsActive: 1
 --- !u!114 &226030706129177673
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -22572,9 +22574,9 @@ RectTransform:
   - {fileID: 6016970784628349026}
   m_Father: {fileID: 7250021516505297247}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
-  m_AnchorMin: {x: 0, y: 1}
-  m_AnchorMax: {x: 0, y: 1}
-  m_AnchoredPosition: {x: 780, y: -250.00002}
+  m_AnchorMin: {x: 0, y: 0}
+  m_AnchorMax: {x: 0, y: 0}
+  m_AnchoredPosition: {x: 0, y: 0}
   m_SizeDelta: {x: 500, y: 500}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!1 &1336346919716419643
@@ -24571,7 +24573,7 @@ RectTransform:
   m_AnchorMin: {x: 0.17352085, y: 0.12777779}
   m_AnchorMax: {x: 0.83029175, y: 0.6234074}
   m_AnchoredPosition: {x: 0, y: 170}
-  m_SizeDelta: {x: 189.33325, y: -451.60898}
+  m_SizeDelta: {x: 0, y: 0}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &7250021516505297248
 MonoBehaviour:
@@ -24810,9 +24812,9 @@ RectTransform:
   - {fileID: 1882693399}
   m_Father: {fileID: 7250021516505297247}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
-  m_AnchorMin: {x: 0, y: 1}
-  m_AnchorMax: {x: 0, y: 1}
-  m_AnchoredPosition: {x: 250, y: -250.00002}
+  m_AnchorMin: {x: 0, y: 0}
+  m_AnchorMax: {x: 0, y: 0}
+  m_AnchoredPosition: {x: 0, y: 0}
   m_SizeDelta: {x: 500, y: 500}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &7795561793538983281
