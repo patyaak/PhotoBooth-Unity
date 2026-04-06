@@ -19939,6 +19939,7 @@ MonoBehaviour:
   boothPrice: {fileID: 4904306168590523558}
   priceParent: {fileID: 1971138812429310108}
   gatchaPrice: {fileID: 1450668062}
+  printerStatusText: {fileID: 0}
   logoBtn: {fileID: 6284285003830899591}
   vendorSwitchingButton: {fileID: 1661653798}
   errorPanel: {fileID: 1956347830}
@@ -23205,7 +23206,7 @@ MonoBehaviour:
       m_Calls: []
   m_Sprite: {fileID: 21300000, guid: 55db21879e03973459b9c7adcc6ead26, type: 3}
   m_Type: 0
-  m_PreserveAspect: 0
+  m_PreserveAspect: 1
   m_FillCenter: 1
   m_FillMethod: 4
   m_FillAmount: 1

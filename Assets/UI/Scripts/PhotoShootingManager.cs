@@ -24,9 +24,11 @@ public class PhotoShootingManager : MonoBehaviour
     [Header("Countdown")]
     // public TMP_Text timerText; // Replaced
     public GameObject timerRoot;
-    public GameObject count3;
-    public GameObject count2;
-    public GameObject count1;
+    public TMP_Dropdown timerDropdown; // NEW: Dropdown for selecting timer
+    public GameObject timer3SecParent; // NEW: Parent of 3, 2, 1
+    public GameObject timer5SecParent; // NEW: Parent of 5, 4, 3, 2, 1
+    public GameObject timer7SecParent; // NEW: Parent of 7, 6, 5...
+    public GameObject timer10SecParent; // NEW: Parent of 10, 9, 8...
     public Image flashPanel;
 
     [Header("Camera & Preview")]
@@ -107,6 +109,7 @@ public class PhotoShootingManager : MonoBehaviour
 
 
         InitializeWebcamDropdown();
+        InitializeTimerDropdown(); // NEW: Populate the timer dropdown
 
         // -------------------------------------------------------------
         // AUTO-DISCOVERY FOR FACE EFFECTS (User Convenience)
@@ -161,6 +164,27 @@ public class PhotoShootingManager : MonoBehaviour
         currentWebcamName = devices[0].name;
 
         webcamDropdown.onValueChanged.AddListener(OnWebcamChanged);
+    }
+
+    private void InitializeTimerDropdown()
+    {
+        if (timerDropdown == null) return;
+
+        timerDropdown.ClearOptions();
+        List<string> options = new List<string> { "3 sec", "5 sec", "7 sec", "10 sec" };
+        timerDropdown.AddOptions(options);
+
+        // Load saved value from PlayerPrefs
+        int savedValue = PlayerPrefs.GetInt("SelectedTimerIndex", 0);
+        timerDropdown.value = savedValue;
+        timerDropdown.RefreshShownValue();
+
+        // Add listener to save when changed
+        timerDropdown.onValueChanged.AddListener((val) => {
+            PlayerPrefs.SetInt("SelectedTimerIndex", val);
+            PlayerPrefs.Save();
+            Debug.Log($"🕒 [PSM] Timer selection saved: {options[val]}");
+        });
     }
 
     public void OnWebcamChanged(int index)
@@ -664,25 +688,52 @@ public class PhotoShootingManager : MonoBehaviour
         }
         // --------------------------------
 
-        // --- NEW TIMER LOGIC ---
+        // --- NEW DYNAMIC TIMER LOGIC ---
         if (timerRoot != null) timerRoot.SetActive(true);
         
-        if (count3 != null) count3.SetActive(true);
-        if (count2 != null) count2.SetActive(false);
-        if (count1 != null) count1.SetActive(false);
-        yield return new WaitForSeconds(1f);
+        // Deactivate all sub-timer parents first
+        if (timer3SecParent != null) timer3SecParent.SetActive(false);
+        if (timer5SecParent != null) timer5SecParent.SetActive(false);
+        if (timer7SecParent != null) timer7SecParent.SetActive(false);
+        if (timer10SecParent != null) timer10SecParent.SetActive(false);
 
-        if (count3 != null) count3.SetActive(false);
-        if (count2 != null) count2.SetActive(true);
-        yield return new WaitForSeconds(1f);
+        // Pick the active parent based on selection
+        GameObject activeTimerParent = timer3SecParent;
+        if (timerDropdown != null)
+        {
+            string selected = timerDropdown.options[timerDropdown.value].text;
+            if (selected.Contains("5")) activeTimerParent = timer5SecParent;
+            else if (selected.Contains("7")) activeTimerParent = timer7SecParent;
+            else if (selected.Contains("10")) activeTimerParent = timer10SecParent;
+        }
 
-        if (count2 != null) count2.SetActive(false);
-        if (count1 != null) count1.SetActive(true);
-        yield return new WaitForSeconds(1f);
+        if (activeTimerParent != null)
+        {
+            activeTimerParent.SetActive(true);
+            
+            // Loop through all children (the countdown numbers)
+            // We assume they are ordered correctly in hierarchy: 3, 2, 1 or 5, 4, 3, 2, 1
+            int childCount = activeTimerParent.transform.childCount;
+            for (int i = 0; i < childCount; i++)
+            {
+                // Deactivate all first
+                for (int j = 0; j < childCount; j++)
+                    activeTimerParent.transform.GetChild(j).gameObject.SetActive(false);
 
-        if (count1 != null) count1.SetActive(false);
+                // Activate current one
+                activeTimerParent.transform.GetChild(i).gameObject.SetActive(true);
+                yield return new WaitForSeconds(1f);
+            }
+            
+            // Deactivate the last one
+            for (int j = 0; j < childCount; j++)
+                activeTimerParent.transform.GetChild(j).gameObject.SetActive(false);
+
+            activeTimerParent.SetActive(false);
+        }
+
         if (timerRoot != null) timerRoot.SetActive(false);
-        // -----------------------
+        // ---------------------------------
 
         yield return StartCoroutine(FlashEffect());
 

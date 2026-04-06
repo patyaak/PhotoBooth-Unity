@@ -30,7 +30,7 @@ public class EpsonInkMonitor : MonoBehaviour
     [Header("Simulation (Editor / test)")]
     public SimulatedInkState simulatedState = SimulatedInkState.None;
 
-    public enum SimulatedInkState { None, SimulateLow, SimulateEmpty }
+    public enum SimulatedInkState { None, SimulateLow, SimulateEmpty, Random }
 
     // ──────────────────────────────────────────────
     //  Public state
@@ -188,6 +188,16 @@ public class EpsonInkMonitor : MonoBehaviour
     /// <summary>Call this to force an immediate re-check (e.g. after a print job).</summary>
     public void ForceCheck() => CheckInkLevel();
 
+    /// <summary>
+    /// Sets state to Random and forces a check. 
+    /// Can be linked to a UI button for testing.
+    /// </summary>
+    public void RandomizeAndCheck()
+    {
+        simulatedState = SimulatedInkState.Random;
+        CheckInkLevel();
+    }
+
     // ──────────────────────────────────────────────
     //  Core check
     // ──────────────────────────────────────────────
@@ -199,9 +209,13 @@ public class EpsonInkMonitor : MonoBehaviour
         {
             bool simLow   = simulatedState == SimulatedInkState.SimulateLow;
             bool simEmpty = simulatedState == SimulatedInkState.SimulateEmpty;
+            bool simRand  = simulatedState == SimulatedInkState.Random;
 
             var sb = new System.Text.StringBuilder();
             var payload = new InkStatusPayload { inks = new System.Collections.Generic.List<InkEntry>() };
+
+            bool anyLow   = simLow;
+            bool anyEmpty = simEmpty;
 
             // Helper for simulation
             void AddSim(string color, string status, string colorHex)
@@ -210,33 +224,51 @@ public class EpsonInkMonitor : MonoBehaviour
                 payload.inks.Add(new InkEntry { color = color.ToLower().Replace(" ", ""), status = status.ToLower() });
             }
 
-            AddSim("Cyan", "OK", "#00FF00");
-            AddSim("Magenta", "OK", "#00FF00");
-            
-            if (simEmpty)
+            string GetRandomStatus(out string hex, out bool isLow, out bool isEmpty)
             {
-                AddSim("Yellow", "Low", "#FFFF00");
-                AddSim("Black", "Empty", "#FF0000");
-            }
-            else if (simLow)
-            {
-                AddSim("Yellow", "Low", "#FFFF00");
-                AddSim("Black", "OK", "#00FF00");
-            }
-            else
-            {
-                AddSim("Yellow", "OK", "#00FF00");
-                AddSim("Black", "OK", "#00FF00");
+                int r = UnityEngine.Random.Range(0, 3);
+                if (r == 0) { hex = "#00FF00"; isLow = false; isEmpty = false; return "OK"; }
+                if (r == 1) { hex = "#FFFF00"; isLow = true;  isEmpty = false; return "Low"; }
+                hex = "#FF0000"; isLow = true; isEmpty = true; return "Empty";
             }
 
-            AddSim("Light Cyan", "OK", "#00FF00");
-            AddSim("Light Magenta", "OK", "#00FF00");
+            string[] colors = { "Cyan", "Magenta", "Yellow", "Black", "Light Cyan", "Light Magenta" };
+            foreach (var c in colors)
+            {
+                string status;
+                string hex;
+                bool l, e;
+
+                if (simRand)
+                {
+                    status = GetRandomStatus(out hex, out l, out e);
+                    if (l) anyLow = true;
+                    if (e) anyEmpty = true;
+                }
+                else
+                {
+                    // Legacy static simulation logic
+                    if (c == "Yellow" && (simLow || simEmpty)) { status = "Low"; hex = "#FFFF00"; anyLow = true; }
+                    else if (c == "Black" && simEmpty) { status = "Empty"; hex = "#FF0000"; anyEmpty = true; anyLow = true; }
+                    else { status = "OK"; hex = "#00FF00"; }
+                }
+                AddSim(c, status, hex);
+            }
             
             // Maintenance tank
-            sb.AppendLine("Maint. Tank: <color=#00FF00>OK</color>");
-            payload.inks.Add(new InkEntry { color = "maintenance", status = "ok" });
+            string mtStatus = "OK";
+            string mtHex = "#00FF00";
+            if (simRand)
+            {
+                bool l, e;
+                mtStatus = GetRandomStatus(out mtHex, out l, out e);
+                if (l) anyLow = true;
+                if (e) anyEmpty = true;
+            }
+            sb.AppendLine($"Maint. Tank: <color={mtHex}>{mtStatus}</color>");
+            payload.inks.Add(new InkEntry { color = "maintenance", status = mtStatus.ToLower() });
 
-            FireIfChanged(simLow, simEmpty, sb.ToString().Trim());
+            FireIfChanged(anyLow, anyEmpty, sb.ToString().Trim());
             SendInkStatusToBackend(payload);
             return;
         }
