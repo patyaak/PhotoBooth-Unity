@@ -1139,11 +1139,11 @@ MonoBehaviour:
   beautificationPanel: {fileID: 4802576420329853301}
   editPanel: {fileID: 790610609}
   timerRoot: {fileID: 470547285}
-  timerDropdown: {fileID: 0}
-  timer3SecParent: {fileID: 0}
-  timer5SecParent: {fileID: 0}
-  timer7SecParent: {fileID: 0}
-  timer10SecParent: {fileID: 0}
+  timerDropdown: {fileID: 1884325023}
+  timer3SecParent: {fileID: 1962234577}
+  timer5SecParent: {fileID: 1217600361}
+  timer7SecParent: {fileID: 296638802}
+  timer10SecParent: {fileID: 15743424}
   flashPanel: {fileID: 592682954}
   cameraPreview: {fileID: 1984206576407505659}
   capturePreview: {fileID: 7289027474877118104}
@@ -6687,7 +6687,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!224 &470547286
 RectTransform:
   m_ObjectHideFlags: 0
@@ -14282,7 +14282,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!224 &1128287895
 RectTransform:
   m_ObjectHideFlags: 0
