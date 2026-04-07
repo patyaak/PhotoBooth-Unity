@@ -740,21 +740,12 @@ public class PrintingManager : MonoBehaviour
         bool isSessionActive = IsAnyCustomerSessionActive();
         string currentOrderId = PaymentManager.Instance?.currentOrderId;
 
-        if (isSessionActive && lastReportedErrorOrderId != (currentOrderId ?? "no_order"))
+        if (isSessionActive && !string.IsNullOrEmpty(currentOrderId) && lastReportedErrorOrderId != currentOrderId)
         {
             string condition = MapJapaneseErrorMessageToCondition(msg);
-
-            if (!string.IsNullOrEmpty(currentOrderId))
-            {
-                lastReportedErrorOrderId = currentOrderId;
-                StartCoroutine(SendPrintStatusToBackend(currentOrderId, false, condition));
-                UnityEngine.Debug.Log($"🚨 Immediate printer error reported for order {currentOrderId}: {condition}");
-            }
-            else
-            {
-                lastReportedErrorOrderId = "no_order";
-                UnityEngine.Debug.Log($"🚨 Session printer error detected before order creation: {condition}");
-            }
+            lastReportedErrorOrderId = currentOrderId;
+            StartCoroutine(SendPrintStatusToBackend(currentOrderId, false, condition));
+            UnityEngine.Debug.Log($"🚨 Immediate printer error reported for order {currentOrderId}: {condition}");
 
             if (PhotoShootingManager.Instance != null)
             {

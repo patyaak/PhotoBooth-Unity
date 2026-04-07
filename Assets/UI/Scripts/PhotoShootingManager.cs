@@ -1252,6 +1252,7 @@ public class PhotoShootingManager : MonoBehaviour
         if (loadingPanel != null) loadingPanel.SetActive(true);
 
         Transform frameParent = displayManager.frameDisplayParent;
+        string orderId = "";
         if (frameParent == null)
         {
             Debug.LogError("Frame parent not assigned!");
@@ -1484,7 +1485,7 @@ public class PhotoShootingManager : MonoBehaviour
 
                 // --- REPORT STATUS TO BACKEND ---
                 string lastStatus = PrintingManager.Instance.LastStatus;
-                string orderId = PaymentManager.Instance?.currentOrderId ?? "";
+                orderId = PaymentManager.Instance?.currentOrderId ?? "";
                 string paymentId = PaymentManager.Instance?.currentPaymentId ?? "";
                 
                 // Determine if successful (Ready means job completed and no errors detected)
@@ -1517,18 +1518,16 @@ public class PhotoShootingManager : MonoBehaviour
         if (loadingPanel != null) loadingPanel.SetActive(true);
 
         // Upload the image
-        string userId = PlayerPrefs.GetString("user_id", "");
-        if (!string.IsNullOrEmpty(userId))
-        {
-            string orderId = PaymentManager.Instance?.currentOrderId ?? "";
-            string frameId = currentFrameItem.frameData.frame_id;
-            bool paymentActive = PlayerPrefs.GetInt("payments_enabled", 0) == 1;
+        orderId = PaymentManager.Instance?.currentOrderId ?? "";
+        string frameId = currentFrameItem.frameData.frame_id;
+        bool paymentActive = PlayerPrefs.GetInt("payments_enabled", 0) == 1;
 
-            yield return StartCoroutine(UploadFinalPhoto(finalComposedImageForPrint, orderId, frameId, paymentActive));
+        // Start upload (now for both Login and Guest mode)
+        yield return StartCoroutine(UploadFinalPhoto(finalComposedImageForPrint, orderId, frameId, paymentActive));
 
-            if (PaymentManager.Instance != null)
-                PaymentManager.Instance.currentOrderId = null;
-        }
+        if (PaymentManager.Instance != null)
+            PaymentManager.Instance.currentOrderId = null;
+
 
         // Hide loading
         if (loadingPanel != null) loadingPanel.SetActive(false);
@@ -1836,10 +1835,10 @@ public class PhotoShootingManager : MonoBehaviour
         currentShotIndex = 0;
         currentFrameItem = null;
 
-        // Clear current order ID to mark end of customer session
+        // Reset payment state and clear current order ID to mark end of customer session
         if (PaymentManager.Instance != null)
         {
-            PaymentManager.Instance.currentOrderId = null;
+            PaymentManager.Instance.ResetPaymentState(true);
         }
 
         // Reset printing error state to allow reporting for next customer

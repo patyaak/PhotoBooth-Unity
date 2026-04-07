@@ -493,7 +493,7 @@ public class PaymentManager : MonoBehaviour
         _ = CloseWebSocketAsync();
     }
 
-    public void ResetPaymentState()
+    public void ResetPaymentState(bool clearOrderId = false)
     {
         currentBoothId = null;
         currentPrice = 0f;
@@ -504,7 +504,15 @@ public class PaymentManager : MonoBehaviour
         currentFrameId = null;
         currentPaymentId = null;
 
-        Debug.Log($"ℹ️ Payment state reset (order_id preserved: {currentOrderId})");
+        if (clearOrderId)
+        {
+            currentOrderId = null;
+            Debug.Log("🗑️ [PaymentManager] Order ID cleared.");
+        }
+        else
+        {
+            Debug.Log($"ℹ️ Payment state reset (order_id preserved: {currentOrderId})");
+        }
     }
 
     public void InitiateFramePaymentForDecide(string boothId, FrameItem selectedFrame, string price, string frameType = "default")

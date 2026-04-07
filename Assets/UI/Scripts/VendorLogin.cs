@@ -3,6 +3,7 @@ using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
 using UnityEngine.Networking;
+using UnityEngine.SceneManagement;
 
 public class VendorLogin : MonoBehaviour
 {
@@ -26,6 +27,7 @@ public class VendorLogin : MonoBehaviour
     public GameObject priceParent; // Shared parent for both prices
     public TMP_Text gatchaPrice;
     public TMP_Text printerStatusText;
+    public Button printerStatusButton;
 
     [Header("Hidden Buttons for switching vendor")]
     public Button logoBtn;
@@ -89,40 +91,86 @@ public class VendorLogin : MonoBehaviour
                                EpsonInkMonitor.Instance.IsInkEmpty,
                                EpsonInkMonitor.Instance.InkStatusMessage);
 
-        // Auto-load last saved booth ID
+        // Auto-load booth ID AFTER device registration is complete
+        StartCoroutine(AutoLoginAfterRegistration());
+    }
+
+    private IEnumerator AutoLoginAfterRegistration()
+    {
+        var deviceReg = FindAnyObjectByType<DeviceRegistration>();
+        if (deviceReg != null)
+        {
+            Debug.Log("[VendorLogin] Waiting for device registration...");
+            // Wait for up to 5 seconds or until registration is complete
+            float timer = 0;
+            while (!deviceReg.IsRegistrationComplete && timer < 5f)
+            {
+                timer += Time.deltaTime;
+                yield return null;
+            }
+        }
+
         if (PlayerPrefs.HasKey("booth_id"))
         {
             string savedBoothID = PlayerPrefs.GetString("booth_id");
-            Debug.Log($"Found saved booth ID: {savedBoothID}. Checking offline/online mode...");
+            if (!string.IsNullOrEmpty(savedBoothID) && savedBoothID != "No Booth ID")
+            {
+                Debug.Log($"[VendorLogin] Auto-loading booth data for: {savedBoothID}");
 
-            // Check internet connectivity
-            if (Application.internetReachability == NetworkReachability.NotReachable)
-            {
-                Debug.Log("📵 No internet connection detected at startup");
-                HandleOfflineStartup(savedBoothID);
-            }
-            else
-            {
-                Debug.Log("🌐 Internet available — loading booth data from server");
-                StartCoroutine(LoadBoothData(savedBoothID));
+                // Check internet connectivity
+                if (Application.internetReachability == NetworkReachability.NotReachable)
+                {
+                    Debug.Log("📵 No internet connection detected — entering offline mode");
+                    HandleOfflineStartup(savedBoothID);
+                }
+                else
+                {
+                    Debug.Log("🌐 Internet available — loading from server");
+                    StartCoroutine(LoadBoothData(savedBoothID));
+                }
             }
         }
 
-        // Set version display automatically from Project Settings
-        if (versionText != null)
+        // Initial Printer Status Check
+        UpdatePrinterStatusUI();
+
+        if (printerStatusButton != null)
         {
-            versionText.text = $"v{Application.version}";
+            printerStatusButton.onClick.AddListener(GoToStartingScene);
         }
+    }
 
+    private void Update()
+    {
+        UpdatePrinterStatusUI();
+    }
+
+    private void UpdatePrinterStatusUI()
+    {
         // Printer Status Check
         if (!PrintingManager.IsPrinterEnabled)
         {
-            StartCoroutine(PrinterOffBlinkRoutine());
+            if (printerStatusText != null)
+            {
+                printerStatusText.text = "Printer is off";
+                printerStatusText.canvasRenderer.SetAlpha(1.0f);
+            }
+            if (printerStatusButton != null)
+            {
+                printerStatusButton.gameObject.SetActive(true);
+            }
         }
-        else if (printerStatusText != null)
+        else
         {
-            printerStatusText.text = "";
-            printerStatusText.canvasRenderer.SetAlpha(0);
+            if (printerStatusText != null)
+            {
+                printerStatusText.text = "";
+                printerStatusText.canvasRenderer.SetAlpha(0f);
+            }
+            if (printerStatusButton != null)
+            {
+                printerStatusButton.gameObject.SetActive(false);
+            }
         }
     }
 
@@ -176,6 +224,10 @@ public class VendorLogin : MonoBehaviour
             if (wifiErrorGO != null)
                 wifiErrorGO.SetActive(true);
 
+            // Ensure we don't hang VendorLogin if we fail offline check
+            var dr = FindAnyObjectByType<DeviceRegistration>();
+            if (dr != null) dr.MarkOfflineReady();
+
             SwitchVendor(); // Reset to login panel
         }
     }
@@ -225,6 +277,9 @@ public class VendorLogin : MonoBehaviour
             Debug.Log($"📦 Loading cached frames for booth: {currentBoothID}");
 
         }
+
+        var dr = FindAnyObjectByType<DeviceRegistration>();
+        if (dr != null) dr.MarkOfflineReady();
 
         Debug.Log("✅ Offline mode ready — app running smoothly with cached data (no WiFi panel)");
 
@@ -445,17 +500,24 @@ public class VendorLogin : MonoBehaviour
     {
         if (theme == null) return;
 
+        var fm = PhotoBoothFrameManager.Instance;
+        if (fm == null) 
+        {
+            Debug.LogError("❌ PhotoBoothFrameManager instance is null! Cannot resolve theme URLs.");
+            return;
+        }
+
         if (!string.IsNullOrEmpty(theme.backgroundImg))
-            StartCoroutine(LoadImage(theme.backgroundImg, backgroundImage));
+            StartCoroutine(LoadImage(fm.ResolveUrl(theme.backgroundImg), backgroundImage));
 
         if (!string.IsNullOrEmpty(theme.logo_path))
-            StartCoroutine(LoadImage(theme.logo_path, logoImage));
+            StartCoroutine(LoadImage(fm.ResolveUrl(theme.logo_path), logoImage));
 
         if (!string.IsNullOrEmpty(theme.QRmobileImg))
-            StartCoroutine(LoadImage(theme.QRmobileImg, qrMobileImage));
+            StartCoroutine(LoadImage(fm.ResolveUrl(theme.QRmobileImg), qrMobileImage));
 
         if (!string.IsNullOrEmpty(theme.CameraImg))
-            StartCoroutine(LoadImage(theme.CameraImg, cameraImage));
+            StartCoroutine(LoadImage(fm.ResolveUrl(theme.CameraImg), cameraImage));
     }
 
     IEnumerator LoadImage(string url, Image target)
@@ -623,18 +685,11 @@ public class VendorLogin : MonoBehaviour
         }
     }
 
-    private IEnumerator PrinterOffBlinkRoutine()
+
+
+    public void GoToStartingScene()
     {
-        if (printerStatusText == null) yield break;
-
-        printerStatusText.text = "Printer is off";
-
-        while (true)
-        {
-            printerStatusText.canvasRenderer.SetAlpha(1.0f);
-            yield return new WaitForSeconds(0.8f);
-            printerStatusText.canvasRenderer.SetAlpha(0.0f);
-            yield return new WaitForSeconds(0.5f);
-        }
+        Debug.Log("Navigating to Starting scene...");
+        SceneManager.LoadScene("Starting");
     }
 }

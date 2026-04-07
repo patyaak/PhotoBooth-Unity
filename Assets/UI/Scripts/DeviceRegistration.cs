@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 using System.Collections;
 using UnityEngine;
@@ -11,6 +11,7 @@ public class DeviceRegistration : MonoBehaviour
 
     public TextMeshProUGUI deviceIdText;
     public TextMeshProUGUI boothIdText;
+    public bool IsRegistrationComplete { get; private set; } = false;
 
     public GameObject wifi;
 
@@ -50,6 +51,11 @@ public class DeviceRegistration : MonoBehaviour
             yield return RegisterDevice();
             yield break;
         }
+    }
+
+    public void MarkOfflineReady()
+    {
+        IsRegistrationComplete = true;
     }
 
     // -------------------------------
@@ -112,6 +118,8 @@ public class DeviceRegistration : MonoBehaviour
             yield return new WaitForSeconds(3f);
             yield return RegisterDevice();
         }
+
+        IsRegistrationComplete = true;
     }
 
     // -------------------------------
@@ -144,7 +152,12 @@ public class DeviceRegistration : MonoBehaviour
 
             var login = FindAnyObjectByType<VendorLogin>();
             if (login != null && login.boothIDInput != null)
-                login.boothIDInput.text = boothID;
+            {
+                // ONLY overwrite the text if it's currently empty, 
+                // to avoid disrupting a user manually typing something else.
+                if (string.IsNullOrEmpty(login.boothIDInput.text) || login.boothIDInput.text == "No Booth ID")
+                    login.boothIDInput.text = boothID;
+            }
 
             Debug.Log("Saved Booth ID locally: " + boothID);
         }
@@ -200,7 +213,10 @@ public class DeviceRegistration : MonoBehaviour
 
         var login = FindAnyObjectByType<VendorLogin>();
         if (login != null && login.boothIDInput != null)
-            login.boothIDInput.text = data.booth_id;
+        {
+            if (string.IsNullOrEmpty(login.boothIDInput.text) || login.boothIDInput.text == "No Booth ID")
+                login.boothIDInput.text = data.booth_id;
+        }
 
         Debug.Log("Loaded Booth ID: " + data.booth_id);
     }
