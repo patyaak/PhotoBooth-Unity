@@ -181,6 +181,7 @@ public class PhotoShootingManager : MonoBehaviour
 
         // Add listener to save when changed
         timerDropdown.onValueChanged.AddListener((val) => {
+            AudioManager.Instance?.PlayClick();
             PlayerPrefs.SetInt("SelectedTimerIndex", val);
             PlayerPrefs.Save();
             Debug.Log($"🕒 [PSM] Timer selection saved: {options[val]}");
@@ -189,6 +190,7 @@ public class PhotoShootingManager : MonoBehaviour
 
     public void OnWebcamChanged(int index)
     {
+        AudioManager.Instance?.PlayClick();
         WebCamDevice[] devices = WebCamTexture.devices;
         if (devices.Length > index && index >= 0)
         {
@@ -744,7 +746,8 @@ public class PhotoShootingManager : MonoBehaviour
     {
         if (flashPanel == null)
             yield break;
-
+        
+        AudioManager.Instance?.PlayShutter();
         flashPanel.gameObject.SetActive(true);
 
         for (float a = 0; a <= 1; a += Time.deltaTime * 8f)

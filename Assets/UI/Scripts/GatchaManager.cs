@@ -1,4 +1,4 @@
-﻿using System.Collections;
+using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Networking;
@@ -99,6 +99,7 @@ public class GatchaManager : MonoBehaviour
         // Play gacha animation
         if (gatchaObject != null)
         {
+            AudioManager.Instance?.PlayGatchaAnim();
             gatchaObject.SetActive(true);
             Animator anim = gatchaObject.GetComponent<Animator>();
             if (anim != null)
@@ -128,6 +129,7 @@ public class GatchaManager : MonoBehaviour
 
     private void OnGachaChildButtonClickedAfterPayment(int buttonIndex)
     {
+        AudioManager.Instance?.PlayClick();
         Debug.Log($"🎰 Gacha button {buttonIndex} clicked (payment already done: {paymentCompletedForCurrentSession})");
 
         // ✅ VERIFY payment was completed
@@ -186,6 +188,7 @@ public class GatchaManager : MonoBehaviour
 
         if (gatchaObject != null)
         {
+            AudioManager.Instance?.PlayGatchaAnim();
             gatchaObject.SetActive(true);
             Animator anim = gatchaObject.GetComponent<Animator>();
             if (anim != null)

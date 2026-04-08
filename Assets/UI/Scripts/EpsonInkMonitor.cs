@@ -59,12 +59,30 @@ public class EpsonInkMonitor : MonoBehaviour
     [DllImport(PSM_DLL, CallingConvention = CallingConvention.Winapi)]
     private static extern int PSM_ExitInstance();
 
+    [DllImport(PSM_DLL, CallingConvention = CallingConvention.Winapi)]
+    private static extern int PSM_InitInstanceEx(int nType);
+
+    [DllImport(PSM_DLL, CallingConvention = CallingConvention.Winapi)]
+    private static extern int PSM_GetSDKVersion(IntPtr pVersion);
+
     // -- Printer handle --
-    [DllImport(PSM_DLL, CallingConvention = CallingConvention.Winapi, CharSet = CharSet.Unicode)]
+    [DllImport(PSM_DLL, CallingConvention = CallingConvention.Winapi, CharSet = CharSet.Ansi)]
     private static extern int PSM_OpenPrinter(string printerName, out IntPtr phPrinter);
+
+    [DllImport(PSM_DLL, CallingConvention = CallingConvention.Winapi, CharSet = CharSet.Ansi)]
+    private static extern int PSM_OpenPrinterEx(string printerName, int nOption, out IntPtr phPrinter);
 
     [DllImport(PSM_DLL, CallingConvention = CallingConvention.Winapi)]
     private static extern int PSM_ClosePrinter(IntPtr hPrinter);
+
+    [DllImport(PSM_DLL, CallingConvention = CallingConvention.Winapi, CharSet = CharSet.Ansi)]
+    private static extern int PSM_RegisterPrinter(string printerName, int nOption);
+
+    [DllImport(PSM_DLL, CallingConvention = CallingConvention.Winapi)]
+    private static extern int PSM_UnregisterPrinter(string printerName);
+
+    [DllImport(PSM_DLL, CallingConvention = CallingConvention.Winapi)]
+    private static extern int PSM_GetSystemInformation(IntPtr pInfo, ref int pSize);
 
     // -- Status query --
     [DllImport(PSM_DLL, CallingConvention = CallingConvention.StdCall)]
@@ -146,17 +164,44 @@ public class EpsonInkMonitor : MonoBehaviour
     //  SDK init / shutdown
     // ──────────────────────────────────────────────
 
+    private string _sdkVersion = "Unknown";
+
     private void InitSDK()
     {
         try
         {
             int ret = PSM_InitInstance();
+            if (ret != 0)
+            {
+                Debug.LogWarning($"[EpsonInkMonitor] PSM_InitInstance failed ({ret}). Trying PSM_InitInstanceEx...");
+                ret = PSM_InitInstanceEx(0);
+            }
+            
             _sdkInitialized = (ret == 0);
-            Debug.Log($"[EpsonInkMonitor] PSM_InitInstance → {ret} (0 = OK). Initialized: {_sdkInitialized}");
+
+            if (_sdkInitialized)
+            {
+                IntPtr pVer = Marshal.AllocHGlobal(256);
+                try {
+                    PSM_GetSDKVersion(pVer);
+                    _sdkVersion = Marshal.PtrToStringAnsi(pVer);
+                    Debug.Log($"[EpsonInkMonitor] SDK Init Success. Version: {_sdkVersion}");
+                } catch {
+                    _sdkVersion = "Error reading version";
+                } finally {
+                    Marshal.FreeHGlobal(pVer);
+                }
+            }
+            else
+            {
+                _sdkVersion = "Init Failed";
+                Debug.LogWarning($"[EpsonInkMonitor] SDK Init failed with code {ret}");
+            }
         }
         catch (Exception ex)
         {
-            Debug.LogError($"[EpsonInkMonitor] PSM_InitInstance failed: {ex.Message}");
+            _sdkVersion = "Exception";
+            Debug.LogError($"[EpsonInkMonitor] SDK Init exception: {ex.Message}");
             _sdkInitialized = false;
         }
     }
@@ -277,12 +322,16 @@ public class EpsonInkMonitor : MonoBehaviour
         if (!_sdkInitialized)
         {
             InitSDK(); // retry init in case it failed at startup
-            if (!_sdkInitialized) return;
+            if (!_sdkInitialized) 
+            {
+                FireIfChanged(false, false, "<color=red>SDK Initialization Failed</color>");
+                return;
+            }
         }
 
         // Get printer name from PrintingManager
         string printerName = PrintingManager.Instance != null
-            ? PrintingManager.Instance.selectedPrinter
+            ? PrintingManager.Instance.selectedPrinter?.Trim()
             : string.Empty;
 
         if (string.IsNullOrWhiteSpace(printerName))
@@ -296,11 +345,116 @@ public class EpsonInkMonitor : MonoBehaviour
 
         try
         {
-            // Open printer
-            int openRet = PSM_OpenPrinter(printerName, out hPrinter);
-            if (openRet != 0 || hPrinter == IntPtr.Zero)
+            // --- Brute Force Discovery ---
+            // Try EVERY printer name AND numeric indices (0, 1, 2) which some SDKs use.
+            var variations = new System.Collections.Generic.List<string>();
+            
+            // 1. Numeric Indices (Very common for Version 2 industrial SDKs)
+            variations.Add("0");
+            variations.Add("1");
+            variations.Add("2");
+
+            // 2. Precise name variations
+            variations.Add(printerName);
+            variations.Add(printerName.Replace(" Series", ""));
+            variations.Add(printerName.Replace("EPSON ", ""));
+            
+            // 3. All installed printers
+            foreach (string p in System.Drawing.Printing.PrinterSettings.InstalledPrinters)
             {
-                Debug.LogWarning($"[EpsonInkMonitor] PSM_OpenPrinter failed (ret={openRet}) for '{printerName}'");
+                if (!variations.Contains(p)) variations.Add(p);
+            }
+
+            int lastError = 0;
+            string successfulName = "";
+
+            foreach (var name in variations)
+            {
+                if (string.IsNullOrEmpty(name)) continue;
+                
+                // --- Try different registration modes ---
+                // In some Epson SDKs: 0 = Local/USB, 1 = Network
+                int[] regModes = { 0, 1 }; 
+                foreach (int mode in regModes)
+                {
+                    int regRet = PSM_RegisterPrinter(name, mode);
+                    // Store latest error to show in UI if we fail
+                    lastError = regRet; 
+                    
+                    // Give the SDK a tiny amount of time to register the handle
+                    System.Threading.Thread.Sleep(100); 
+
+                    // 1. Try standard open
+                    int openRet = PSM_OpenPrinter(name, out hPrinter);
+                    if (openRet == 0 && hPrinter != IntPtr.Zero)
+                    {
+                        successfulName = name;
+                        Debug.Log($"[EpsonInkMonitor] SUCCESS: Opened '{name}' after reg (Mode {mode}).");
+                        break;
+                    }
+
+                    // 2. Try 'Shared' Open (PSM_OpenPrinterEx)
+                    openRet = PSM_OpenPrinterEx(name, 1, out hPrinter);
+                    if (openRet == 0 && hPrinter != IntPtr.Zero)
+                    {
+                        successfulName = name;
+                        Debug.Log($"[EpsonInkMonitor] SUCCESS (Shared Mode): Opened '{name}' (Mode {mode})");
+                        break;
+                    }
+                    
+                    lastError = openRet; // Track the open error too
+                }
+
+                if (hPrinter != IntPtr.Zero) break;
+                lastError = 0; // Reset for next name variation
+            }
+
+            // --- Fallback: Try to find a Port name (Advanced) ---
+            if (hPrinter == IntPtr.Zero)
+            {
+                // Try searching for a USB port handle if name fails
+                string[] commonPorts = { "USB001", "USB002", "USB003", "USB004" };
+                foreach (var port in commonPorts)
+                {
+                    int openRet = PSM_OpenPrinter(port, out hPrinter);
+                    if (openRet == 0 && hPrinter != IntPtr.Zero)
+                    {
+                        Debug.Log($"[EpsonInkMonitor] SUCCESS: Found printer on port '{port}'");
+                        successfulName = port;
+                        break;
+                    }
+                    lastError = openRet; // Track the open error
+                }
+
+                if (successfulName != "") { /* Success found in port scan */ }
+            }
+
+            // --- Advanced: System Info Dump (The "Secret Name" Finder) ---
+            string systemInfoDump = "Empty";
+            if (hPrinter == IntPtr.Zero)
+            {
+                int size = 1024;
+                IntPtr pBuf = Marshal.AllocHGlobal(size);
+                try {
+                    int ret = PSM_GetSystemInformation(pBuf, ref size);
+                    if (ret == 0) {
+                        // Extract first 100 chars to see if there are any embedded names
+                        systemInfoDump = Marshal.PtrToStringAnsi(pBuf, Math.Min(size, 100));
+                        // Clean up non-printable chars for UI
+                        systemInfoDump = System.Text.RegularExpressions.Regex.Replace(systemInfoDump, @"[^\x20-\x7F]", ".");
+                    }
+                } catch {
+                    systemInfoDump = "Dump Failed";
+                } finally {
+                    Marshal.FreeHGlobal(pBuf);
+                }
+            }
+
+            if (successfulName == "")
+            {
+                string err = $"<color=red>Final Error: {lastError} (SDK {_sdkVersion})</color>\nSystem Info Dump: {systemInfoDump}\nPrinters in Win: {variations.Count}";
+                Debug.LogWarning($"[EpsonInkMonitor] {err}");
+                FireIfChanged(false, false, err);
                 return;
             }
 
@@ -313,7 +467,9 @@ public class EpsonInkMonitor : MonoBehaviour
             int infoRet = PSM_GetPrinterInformation(hPrinter, 1, pInfoBuf, INFO_BUF_SIZE);
             if (infoRet != 0)
             {
-                Debug.LogWarning($"[EpsonInkMonitor] PSM_GetPrinterInformation failed (ret={infoRet})");
+                string err = $"<color=red>Get Ink Info Failed ({infoRet})</color>";
+                Debug.LogWarning($"[EpsonInkMonitor] {err}");
+                FireIfChanged(false, false, err);
                 return;
             }
 
@@ -351,7 +507,9 @@ public class EpsonInkMonitor : MonoBehaviour
 
         if (dwInkCount == 0 || dwInkCount > MAX_INK_SLOTS)
         {
-            Debug.LogWarning($"[EpsonInkMonitor] Unexpected ink count: {dwInkCount}");
+            string err = $"<color=yellow>Invalid Ink Count: {dwInkCount}</color>";
+            Debug.LogWarning($"[EpsonInkMonitor] {err}");
+            FireIfChanged(false, false, err);
             return;
         }
 

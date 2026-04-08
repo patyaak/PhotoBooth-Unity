@@ -1,4 +1,4 @@
-﻿using System.Collections;
+using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
@@ -64,6 +64,7 @@ public class UiController : MonoBehaviour
 
     private void OnRetakeClicked()
     {
+        AudioManager.Instance?.PlayClick();
         // 1. Hide the panel immediately so user sees feedback
         if (PhotoShootingManager.Instance.beautificationPanel != null)
             PhotoShootingManager.Instance.beautificationPanel.SetActive(false);
@@ -218,6 +219,7 @@ public class UiController : MonoBehaviour
 
     private void OnDone()
     {
+        AudioManager.Instance?.PlayClick();
         if (isSingleImageMode)
         {
             StartCoroutine(ProcessAndSaveSingleImage());

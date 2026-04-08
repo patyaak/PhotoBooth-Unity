@@ -143,6 +143,7 @@ public class LoginManager : MonoBehaviour
     // QR GENERATION
     private void OnGenerateQRClicked()
     {
+        AudioManager.Instance?.PlayClick();
         qrPanel.SetActive(true);
         StartCoroutine(RequestQRToken());
 
@@ -383,6 +384,7 @@ public class LoginManager : MonoBehaviour
 
             if (envelope.@event == "user-logged-in")
             {
+                AudioManager.Instance?.PlayLoginSuccess();
                 Debug.Log("🎉 USER LOGGED IN VIA QR SCAN!");
 
                 try
@@ -460,6 +462,7 @@ public class LoginManager : MonoBehaviour
     // UI & FRAME SELECTION
     public void OnGuestBtnClick()
     {
+        AudioManager.Instance?.PlayLoginSuccess();
         Debug.Log("👤 Guest mode button clicked");
 
         PlayerPrefs.DeleteKey("user_id");
@@ -540,6 +543,7 @@ public class LoginManager : MonoBehaviour
 
     private void ShowErrorMessage(string message)
     {
+        AudioManager.Instance?.PlayError();
         Debug.LogWarning($"⚠️ Showing error to user: {message}");
         // You can implement a UI popup here to show the error to the user
         // For example: errorMessageText.text = message; errorPanel.SetActive(true);

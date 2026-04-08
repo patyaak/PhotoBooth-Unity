@@ -115,6 +115,9 @@ public class PhotoBoothFrameManager : MonoBehaviour
         if (playButton) playButton.onClick.AddListener(OnGatchaPlay);
         if (nextButton) nextButton.onClick.AddListener(OnNextClicked);
         if (prevButton) prevButton.onClick.AddListener(OnPrevClicked);
+
+        // Add sound to back button if it exists
+        if (backButton) backButton.onClick.AddListener(() => AudioManager.Instance?.PlayBackBtnSound());
     }
 
     private void SetupScrollRectListeners()
@@ -171,6 +174,7 @@ public class PhotoBoothFrameManager : MonoBehaviour
     {
         if (currentPage < totalPages - 1)
         {
+            AudioManager.Instance?.PlayClick();
             currentPage++;
             float targetPosition = (float)currentPage / (totalPages - 1);
             StartCoroutine(ScrollTo(targetPosition));
@@ -182,6 +186,7 @@ public class PhotoBoothFrameManager : MonoBehaviour
     {
         if (currentPage > 0)
         {
+            AudioManager.Instance?.PlayClick();
             currentPage--;
             float targetPosition = currentPage == 0 ? 0f : (float)currentPage / (totalPages - 1);
             StartCoroutine(ScrollTo(targetPosition));
@@ -736,6 +741,7 @@ public class PhotoBoothFrameManager : MonoBehaviour
 
     void OnCategoryButtonClicked(Button clickedButton)
     {
+        AudioManager.Instance?.PlayClick();
         if (clickedButton == myFrameButton)
         {
             if (string.IsNullOrEmpty(PlayerPrefs.GetString("user_id")))
@@ -818,6 +824,7 @@ public class PhotoBoothFrameManager : MonoBehaviour
 
     public void OnDecideButtonClicked()
     {
+        AudioManager.Instance?.PlayClick();
         FrameItem selectedItem = GetSelectedFrameItem();
         if (selectedItem == null)
         {
@@ -926,6 +933,7 @@ public class PhotoBoothFrameManager : MonoBehaviour
             startButton.onClick.RemoveAllListeners();
             startButton.onClick.AddListener(() =>
             {
+                AudioManager.Instance?.PlayClick();
                 Debug.Log("🎬 START SHOOTING BUTTON CLICKED!");
 
                 // Clear gacha flow flag when shooting actually starts
@@ -971,6 +979,7 @@ public class PhotoBoothFrameManager : MonoBehaviour
 
     public void OnGatchaPlay()
     {
+        AudioManager.Instance?.PlayClick();
         bool paymentsEnabled = PlayerPrefs.GetInt("payments_enabled", 0) == 1;
         if (paymentsEnabled && PaymentManager.Instance != null)
         {
