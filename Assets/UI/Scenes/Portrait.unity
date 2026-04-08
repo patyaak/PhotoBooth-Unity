@@ -2495,10 +2495,12 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::AudioManager
   clickSound: {fileID: 8300000, guid: 3e8af2ca2a79bc444acec4846b2705c8, type: 3}
+  backBtnSound: {fileID: 8300000, guid: 22a9d646cbd07c34bbaf79fc5b17392b, type: 3}
   loginSuccessSound: {fileID: 8300000, guid: 726148226d270db47be4f42e2135a192, type: 3}
   errorSound: {fileID: 8300000, guid: 59a5274640bdb3c4eac0e0fbfc09e0cb, type: 3}
   gatchaAnimSound: {fileID: 8300000, guid: 5ae7c97c6d5c8694c8925fcdbbf18d25, type: 3}
   shutterSound: {fileID: 8300000, guid: f8b7dd7dab22df24d806256e04a6090c, type: 3}
+  frameSelectionSound: {fileID: 8300000, guid: 4bf98f2548ba8794e971d57457ef9c99, type: 3}
 --- !u!1 &167785300
 GameObject:
   m_ObjectHideFlags: 0
@@ -6702,6 +6704,7 @@ MonoBehaviour:
         gacha: 0
       my_frames_count: 0
   currentSelectedFrame: {fileID: 0}
+  currentSelectedFrameId: 
   fetchInterval: 300
 --- !u!1 &629246530
 GameObject:
@@ -19253,6 +19256,18 @@ MonoBehaviour:
           m_StringArgument: 
           m_BoolArgument: 0
         m_CallState: 2
+      - m_Target: {fileID: 157306322}
+        m_TargetAssemblyTypeName: AudioManager, Assembly-CSharp
+        m_MethodName: PlayBackBtnSound
+        m_Mode: 1
+        m_Arguments:
+          m_ObjectArgument: {fileID: 0}
+          m_ObjectArgumentAssemblyTypeName: UnityEngine.Object, UnityEngine
+          m_IntArgument: 0
+          m_FloatArgument: 0
+          m_StringArgument: 
+          m_BoolArgument: 0
+        m_CallState: 2
 --- !u!114 &1789737504
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -19761,7 +19776,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0, y: 0}
   m_AnchorMax: {x: 1, y: 0.966}
-  m_AnchoredPosition: {x: 0, y: 38.153564}
+  m_AnchoredPosition: {x: 0, y: 38.15332}
   m_SizeDelta: {x: 0, y: -1064.007}
   m_Pivot: {x: 0, y: 1}
 --- !u!114 &1803503179
@@ -23903,7 +23918,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 0
+  m_IsActive: 1
 --- !u!224 &122280855648715781
 RectTransform:
   m_ObjectHideFlags: 0
@@ -24176,6 +24191,18 @@ MonoBehaviour:
         m_TargetAssemblyTypeName: UnityEngine.GameObject, UnityEngine
         m_MethodName: SetActive
         m_Mode: 6
+        m_Arguments:
+          m_ObjectArgument: {fileID: 0}
+          m_ObjectArgumentAssemblyTypeName: UnityEngine.Object, UnityEngine
+          m_IntArgument: 0
+          m_FloatArgument: 0
+          m_StringArgument: 
+          m_BoolArgument: 0
+        m_CallState: 2
+      - m_Target: {fileID: 157306322}
+        m_TargetAssemblyTypeName: AudioManager, Assembly-CSharp
+        m_MethodName: PlayBackBtnSound
+        m_Mode: 1
         m_Arguments:
           m_ObjectArgument: {fileID: 0}
           m_ObjectArgumentAssemblyTypeName: UnityEngine.Object, UnityEngine
@@ -24794,9 +24821,9 @@ RectTransform:
   - {fileID: 6016970784628349026}
   m_Father: {fileID: 7250021516505297247}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
-  m_AnchorMin: {x: 0, y: 1}
-  m_AnchorMax: {x: 0, y: 1}
-  m_AnchoredPosition: {x: 780, y: -249.99998}
+  m_AnchorMin: {x: 0, y: 0}
+  m_AnchorMax: {x: 0, y: 0}
+  m_AnchoredPosition: {x: 0, y: 0}
   m_SizeDelta: {x: 500, y: 500}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!224 &1302608452507187087
@@ -28196,7 +28223,7 @@ RectTransform:
   m_AnchorMin: {x: 0.17352085, y: 0.12777779}
   m_AnchorMax: {x: 0.83029175, y: 0.6234074}
   m_AnchoredPosition: {x: 0, y: 170}
-  m_SizeDelta: {x: 189.33325, y: -451.60892}
+  m_SizeDelta: {x: 0, y: 0}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &7250021516505297248
 MonoBehaviour:
@@ -28540,9 +28567,9 @@ RectTransform:
   - {fileID: 1882693399}
   m_Father: {fileID: 7250021516505297247}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
-  m_AnchorMin: {x: 0, y: 1}
-  m_AnchorMax: {x: 0, y: 1}
-  m_AnchoredPosition: {x: 250, y: -249.99998}
+  m_AnchorMin: {x: 0, y: 0}
+  m_AnchorMax: {x: 0, y: 0}
+  m_AnchoredPosition: {x: 0, y: 0}
   m_SizeDelta: {x: 500, y: 500}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!222 &7671496851200469737
@@ -29237,7 +29264,7 @@ MonoBehaviour:
     m_SelectOnDown: {fileID: 0}
     m_SelectOnLeft: {fileID: 0}
     m_SelectOnRight: {fileID: 0}
-  m_Transition: 2
+  m_Transition: 0
   m_Colors:
     m_NormalColor: {r: 1, g: 1, b: 1, a: 1}
     m_HighlightedColor: {r: 0.8117647, g: 0.05490196, b: 0.1764706, a: 1}
@@ -29266,6 +29293,18 @@ MonoBehaviour:
         m_TargetAssemblyTypeName: UnityEngine.GameObject, UnityEngine
         m_MethodName: SetActive
         m_Mode: 6
+        m_Arguments:
+          m_ObjectArgument: {fileID: 0}
+          m_ObjectArgumentAssemblyTypeName: UnityEngine.Object, UnityEngine
+          m_IntArgument: 0
+          m_FloatArgument: 0
+          m_StringArgument: 
+          m_BoolArgument: 0
+        m_CallState: 2
+      - m_Target: {fileID: 157306322}
+        m_TargetAssemblyTypeName: AudioManager, Assembly-CSharp
+        m_MethodName: PlayBackBtnSound
+        m_Mode: 1
         m_Arguments:
           m_ObjectArgument: {fileID: 0}
           m_ObjectArgumentAssemblyTypeName: UnityEngine.Object, UnityEngine

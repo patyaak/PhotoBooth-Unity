@@ -13,6 +13,7 @@ public class AudioManager : MonoBehaviour
     [Header("Special Sounds")]
     public AudioClip gatchaAnimSound;
     public AudioClip shutterSound;
+    public AudioClip frameSelectionSound;
 
     private AudioSource sfxAudioSource;
 
@@ -58,6 +59,11 @@ public class AudioManager : MonoBehaviour
     public void PlayShutter()
     {
         PlaySound(shutterSound);
+    }
+
+    public void PlayFrameSelection()
+    {
+        PlaySound(frameSelectionSound);
     }
 
     private void PlaySound(AudioClip clip)

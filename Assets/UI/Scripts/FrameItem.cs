@@ -30,6 +30,17 @@ class FrameItem : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler,IPoin
     public Frame frameData;
     private List<Image> layoutSlots = new List<Image>();
     private bool isSelected = false;
+    private Sprite normalSprite;
+    private Button btn;
+
+    private void Awake()
+    {
+        btn = GetComponent<Button>();
+        if (btn != null && btn.image != null)
+        {
+            normalSprite = btn.image.sprite;
+        }
+    }
 
     // Flag for whether this frame can be selected
     private bool isSelectable = true;
@@ -86,6 +97,15 @@ class FrameItem : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler,IPoin
             ? PhotoBoothFrameManager.Instance.ResolveUrl(frame.asset_path)
             : frame.asset_path;
         cachedFrameAssetPath = FrameCacheManager.GetCachedTexturePath(resolvedAssetUrl);
+
+        // Ensure we have the button reference and store original sprite
+        if (btn == null) btn = GetComponent<Button>();
+        if (btn != null && normalSprite == null) normalSprite = btn.image.sprite;
+
+        // Reset to default state
+        isSelected = false;
+        if (btn != null && normalSprite != null) btn.image.sprite = normalSprite;
+        UpdateTextColor();
     }
 
     public void CreateLayoutSlots(int count)
@@ -143,12 +163,24 @@ class FrameItem : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler,IPoin
         if (!isSelectable) return;
         isSelected = true;
         UpdateTextColor();
+        
+        if (btn == null) btn = GetComponent<Button>();
+        if (btn != null && btn.spriteState.selectedSprite != null)
+        {
+            if (normalSprite == null) normalSprite = btn.image.sprite;
+            btn.image.sprite = btn.spriteState.selectedSprite;
+        }
     }
 
     public void Deselect()
     {
         isSelected = false;
         UpdateTextColor();
+        
+        if (btn != null && normalSprite != null)
+        {
+            btn.image.sprite = normalSprite;
+        }
     }
 
     private void UpdateTextColor()
@@ -160,20 +192,12 @@ class FrameItem : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler,IPoin
 
     public void OnPointerEnter(PointerEventData eventData)
     {
-        if (!isSelectable) return;
-
-        if (!isSelected)
-        {
-            if (shotCountText != null) shotCountText.color = highlightColor;
-            if (layoutCountText != null) layoutCountText.color = highlightColor;
-        }
+        // Hover effects disabled to prevent stuck visual states
     }
 
     public void OnPointerExit(PointerEventData eventData)
     {
-        if (!isSelectable) return;
-
-        if (!isSelected) UpdateTextColor();
+        // Hover effects disabled to prevent stuck visual states
     }
 
     public void OnPointerClick(PointerEventData eventData)

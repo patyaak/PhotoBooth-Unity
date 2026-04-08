@@ -49,6 +49,7 @@ public class PhotoBoothFrameManager : MonoBehaviour
     private string currentCategory = "default";
     private Button currentSelectedButton;
     public FrameItem currentSelectedFrame;
+    public string currentSelectedFrameId = ""; 
     private bool isFetching = false;
 
     // Progress Tracking
@@ -116,8 +117,20 @@ public class PhotoBoothFrameManager : MonoBehaviour
         if (nextButton) nextButton.onClick.AddListener(OnNextClicked);
         if (prevButton) prevButton.onClick.AddListener(OnPrevClicked);
 
-        // Add sound to back button if it exists
-        if (backButton) backButton.onClick.AddListener(() => AudioManager.Instance?.PlayBackBtnSound());
+        // Add sound to back button if it exists and clear selection
+        if (backButton)
+        {
+            backButton.onClick.AddListener(() =>
+            {
+                AudioManager.Instance?.PlayBackBtnSound();
+                currentSelectedFrameId = "";
+                if (currentSelectedFrame != null)
+                {
+                    currentSelectedFrame.Deselect();
+                    currentSelectedFrame = null;
+                }
+            });
+        }
     }
 
     private void SetupScrollRectListeners()
@@ -255,6 +268,7 @@ public class PhotoBoothFrameManager : MonoBehaviour
             currentSelectedFrame.Deselect();
             currentSelectedFrame = null;
         }
+        currentSelectedFrameId = ""; // Also clear the persistent ID
 
         // ✅ FIX: Clear the in-memory sprite/thumbnail cache between customer sessions.
         // Without this, thumbnails downloaded for a previous customer are reused for the
@@ -553,13 +567,21 @@ public class PhotoBoothFrameManager : MonoBehaviour
 
             Button btn = obj.GetComponent<Button>();
             if (btn != null)
-                btn.transition = (currentCategory == "gacha") ? Selectable.Transition.None : Selectable.Transition.SpriteSwap;
+                btn.transition = Selectable.Transition.None;
 
             FrameItem item = obj.GetComponent<FrameItem>();
             if (item != null)
             {
                 item.Setup(frame, currentCategory);
                 item.DisableSelection(currentCategory == "gacha");
+                
+                // RESTORE SELECTION
+                if (currentCategory != "gacha" && !string.IsNullOrEmpty(currentSelectedFrameId) && frame.frame_id == currentSelectedFrameId)
+                {
+                    currentSelectedFrame = item;
+                    item.Select();
+                }
+                
                 currentFrameItems.Add(item);
             }
 
@@ -790,14 +812,29 @@ public class PhotoBoothFrameManager : MonoBehaviour
             currentSelectedFrame.Deselect();
 
         currentSelectedFrame = item;
-        currentSelectedFrame?.Select();
+        
+        if (item != null && item.frameData != null)
+        {
+            currentSelectedFrameId = item.frameData.frame_id;
+            currentSelectedFrame.Select();
+        }
+        else
+        {
+            currentSelectedFrameId = "";
+        }
+
+        // Play frame selection sound for specific categories
+        if (currentCategory == "default" || currentCategory == "recommended" || currentCategory == "myframe")
+        {
+            AudioManager.Instance?.PlayFrameSelection();
+        }
 
         if (item != null && item.frameData != null)
         {
             Debug.Log($"[Current Selected Frame] Name: {item.frameData.title}, ID: {item.frameData.frame_id}, Shots: {item.frameData.number_of_shots}, Category: {item.frameData.category}");
             Debug.Log($"[Frame Data Full]\n{JsonUtility.ToJson(item.frameData, true)}");
         }
-        
+
         //LOG: Frame Selected
         LoggingManager.Instance?.LogCustomerClick(
        buttonName: "FrameSelection",
