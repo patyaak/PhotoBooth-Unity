@@ -17,13 +17,24 @@ public class SceneManagement : MonoBehaviour
     public Button onButton;
     public Button offButton;
 
+    [Header("Audio Toggle UI")]
+    public GameObject audioPanel;
+    public Button audioOnButton;
+    public Button audioOffButton;
+
+
     private void Start()
     {
  
         bool isPrinterOn = PlayerPrefs.GetInt("PrinterEnabled", 0) == 1;
-
         UpdateButtonStates(isPrinterOn);
+
+        // Initialize Audio states directly from PlayerPrefs
+        bool isAudioOn = PlayerPrefs.GetInt("AudioEnabled", 1) == 1;
+        UpdateAudioButtonStates(isAudioOn);
     }
+
+
 
     public void LoadLandscapeScene()
     {
@@ -47,10 +58,10 @@ public class SceneManagement : MonoBehaviour
 
     public void PressOffButton()
     {
-    
         SetPrinterState(true);
         UpdateButtonStates(true);
     }
+
 
     private void UpdateButtonStates(bool isOn)
     {
@@ -65,4 +76,47 @@ public class SceneManagement : MonoBehaviour
         PlayerPrefs.Save();
         Debug.Log($"🖨️ Printer state set to: {(isOn ? "ON" : "OFF")}");
     }
+
+    // --- Audio Toggle Logic (Independent from Printer) ---
+
+    public void PressAudioOnButton()
+    {
+        SetAudioState(false);
+    }
+
+    public void PressAudioOffButton()
+    {
+        SetAudioState(true);
+    }
+
+
+    private void SetAudioState(bool isOn)
+    {
+        PlayerPrefs.SetInt("AudioEnabled", isOn ? 1 : 0);
+        PlayerPrefs.Save();
+        
+        UpdateAudioButtonStates(isOn);
+
+        // Apply immediately if AudioManager exists
+        if (AudioManager.Instance != null)
+        {
+            AudioManager.Instance.ApplyAudioState();
+        }
+    }
+
+
+
+    private void UpdateAudioButtonStates(bool isOn)
+    {
+        if (audioOnButton != null) audioOnButton.interactable = isOn;
+        if (audioOffButton != null) audioOffButton.interactable = !isOn;
+
+        Debug.Log($"🔊 Audio state set to: {(isOn ? "ON" : "OFF")}");
+    }
+
+
+
+
 }
+
+

@@ -701,17 +701,19 @@ public class PhotoShootingManager : MonoBehaviour
 
         // Pick the active parent based on selection
         GameObject activeTimerParent = timer3SecParent;
+        int timerSeconds = 3;
         if (timerDropdown != null)
         {
             string selected = timerDropdown.options[timerDropdown.value].text;
-            if (selected.Contains("5")) activeTimerParent = timer5SecParent;
-            else if (selected.Contains("7")) activeTimerParent = timer7SecParent;
-            else if (selected.Contains("10")) activeTimerParent = timer10SecParent;
+            if (selected.Contains("5")) { activeTimerParent = timer5SecParent; timerSeconds = 5; }
+            else if (selected.Contains("7")) { activeTimerParent = timer7SecParent; timerSeconds = 7; }
+            else if (selected.Contains("10")) { activeTimerParent = timer10SecParent; timerSeconds = 10; }
         }
 
         if (activeTimerParent != null)
         {
             activeTimerParent.SetActive(true);
+            AudioManager.Instance?.PlayTimerSound(timerSeconds);
             
             // Loop through all children (the countdown numbers)
             // We assume they are ordered correctly in hierarchy: 3, 2, 1 or 5, 4, 3, 2, 1
@@ -1482,7 +1484,11 @@ public class PhotoShootingManager : MonoBehaviour
 
                 // Show Done
                 if (printingInProgress != null) printingInProgress.SetActive(false);
-                if (printingDone != null) printingDone.SetActive(true);
+                if (printingDone != null)
+                {
+                    printingDone.SetActive(true);
+                    AudioManager.Instance?.PlayPrintingDone();
+                }
                 
                 Debug.Log("✅ Printing workflow completed!");
 
