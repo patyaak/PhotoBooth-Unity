@@ -2496,15 +2496,15 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::AudioManager
   clickSound: {fileID: 8300000, guid: 3e8af2ca2a79bc444acec4846b2705c8, type: 3}
   backBtnSound: {fileID: 8300000, guid: 22a9d646cbd07c34bbaf79fc5b17392b, type: 3}
-  loginSuccessSound: {fileID: 8300000, guid: 726148226d270db47be4f42e2135a192, type: 3}
+  loginSuccessSound: {fileID: 8300000, guid: 308f109fa6775b34d93be8715e4c2353, type: 3}
   errorSound: {fileID: 8300000, guid: 59a5274640bdb3c4eac0e0fbfc09e0cb, type: 3}
-  gatchaAnimSound: {fileID: 8300000, guid: 5ae7c97c6d5c8694c8925fcdbbf18d25, type: 3}
+  gatchaAnimSound: {fileID: 8300000, guid: c87a4fc1d83f147458796cf5cfaf7745, type: 3}
   shutterSound: {fileID: 8300000, guid: f8b7dd7dab22df24d806256e04a6090c, type: 3}
   frameSelectionSound: {fileID: 8300000, guid: 4bf98f2548ba8794e971d57457ef9c99, type: 3}
-  timer3SecSound: {fileID: 8300000, guid: becc0e2226733784997a19dfabfa72f5, type: 3}
-  timer5SecSound: {fileID: 8300000, guid: 346364842008d9b49b00591dd6503a60, type: 3}
-  timer7SecSound: {fileID: 8300000, guid: 79efd372226dceb4687f5958ca8c4793, type: 3}
-  timer10SecSound: {fileID: 8300000, guid: 21b426f24c630274fb848ec57790630d, type: 3}
+  timer3SecSound: {fileID: 8300000, guid: 6a9effd4f3402814fa683da0dc0e3d45, type: 3}
+  timer5SecSound: {fileID: 8300000, guid: 324983cc70ab4124facc6a853e099809, type: 3}
+  timer7SecSound: {fileID: 8300000, guid: 76843bd572e9e3c4f9550e8f650b1447, type: 3}
+  timer10SecSound: {fileID: 8300000, guid: 1e5223420d8f75343a205d2d85b91f03, type: 3}
   printingDoneSound: {fileID: 8300000, guid: d22d5de59d7faa24abe4f67689504a4f, type: 3}
 --- !u!1 &167785300
 GameObject:
