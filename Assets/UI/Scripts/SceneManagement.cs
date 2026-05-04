@@ -26,10 +26,10 @@ public class SceneManagement : MonoBehaviour
     private void Start()
     {
  
-        bool isPrinterOn = PlayerPrefs.GetInt("PrinterEnabled", 0) == 1;
+    
+        bool isPrinterOn = PlayerPrefs.GetInt("PrinterEnabled", 1) == 1;
         UpdateButtonStates(isPrinterOn);
 
-        // Initialize Audio states directly from PlayerPrefs
         bool isAudioOn = PlayerPrefs.GetInt("AudioEnabled", 1) == 1;
         UpdateAudioButtonStates(isAudioOn);
     }
@@ -53,27 +53,27 @@ public class SceneManagement : MonoBehaviour
     public void PressOnButton()
     {
         SetPrinterState(false);
-        UpdateButtonStates(false);
     }
 
     public void PressOffButton()
     {
         SetPrinterState(true);
-        UpdateButtonStates(true);
     }
 
 
     private void UpdateButtonStates(bool isOn)
     {
-  
-        if (onButton != null) onButton.interactable = isOn;
-        if (offButton != null) offButton.interactable = !isOn;
+        if (onButton != null) onButton.gameObject.SetActive(isOn);
+        if (offButton != null) offButton.gameObject.SetActive(!isOn);
     }
 
     private void SetPrinterState(bool isOn)
     {
         PlayerPrefs.SetInt("PrinterEnabled", isOn ? 1 : 0);
         PlayerPrefs.Save();
+        
+        UpdateButtonStates(isOn);
+        
         Debug.Log($"🖨️ Printer state set to: {(isOn ? "ON" : "OFF")}");
     }
 
@@ -108,8 +108,8 @@ public class SceneManagement : MonoBehaviour
 
     private void UpdateAudioButtonStates(bool isOn)
     {
-        if (audioOnButton != null) audioOnButton.interactable = isOn;
-        if (audioOffButton != null) audioOffButton.interactable = !isOn;
+        if (audioOnButton != null) audioOnButton.gameObject.SetActive(isOn);
+        if (audioOffButton != null) audioOffButton.gameObject.SetActive(!isOn);
 
         Debug.Log($"🔊 Audio state set to: {(isOn ? "ON" : "OFF")}");
     }

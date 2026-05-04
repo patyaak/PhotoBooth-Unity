@@ -14,6 +14,7 @@ public class AudioManager : MonoBehaviour
 
     [Header("Special Sounds")]
     public AudioClip gatchaAnimSound;
+    public AudioClip gatchaRevealSound;
     public AudioClip shutterSound;
     public AudioClip frameSelectionSound;
 
@@ -37,10 +38,8 @@ public class AudioManager : MonoBehaviour
             DontDestroyOnLoad(gameObject);
             sfxAudioSource = gameObject.AddComponent<AudioSource>();
 
-            // Load saved audio state
             IsAudioEnabled = PlayerPrefs.GetInt("AudioEnabled", 1) == 1;
             
-            // Register scene load callback to apply audio state
             SceneManager.sceneLoaded += OnSceneLoaded;
         }
         else
@@ -52,7 +51,7 @@ public class AudioManager : MonoBehaviour
 
     private void OnDestroy()
     {
-        // Unregister to avoid memory leaks
+       
         SceneManager.sceneLoaded -= OnSceneLoaded;
     }
 
@@ -108,6 +107,11 @@ public class AudioManager : MonoBehaviour
     public void PlayGatchaAnim()
     {
         PlaySound(gatchaAnimSound);
+    }
+    
+    public void PlayGatchaReveal()
+    {
+        PlaySound(gatchaRevealSound);
     }
 
     public void PlayShutter()

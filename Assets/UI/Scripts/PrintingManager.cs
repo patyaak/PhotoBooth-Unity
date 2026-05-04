@@ -732,7 +732,13 @@ public class PrintingManager : MonoBehaviour
         if (isErrorSnoozed) return;
         if (printerErrorPanel == null) return;
 
+        bool wasActive = printerErrorPanel.activeSelf;
         printerErrorPanel.SetActive(true);
+
+        if (!wasActive)
+        {
+            AudioManager.Instance?.PlayError();
+        }
 
         if (printerErrorText != null)
             printerErrorText.text = msg;

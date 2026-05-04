@@ -439,6 +439,8 @@ public class GatchaManager : MonoBehaviour
 
         if (isResultFrame)
         {
+            AudioManager.Instance?.PlayGatchaReveal();
+            
             if (gatchaResult == null || buttonIndex >= gatchaResult.transform.childCount)
             {
                 Debug.LogWarning("Gacha Result parent not properly set or index out of range!");
