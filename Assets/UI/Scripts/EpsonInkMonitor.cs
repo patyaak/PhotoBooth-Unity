@@ -13,7 +13,7 @@ public class EpsonInkMonitor : MonoBehaviour
     public static EpsonInkMonitor Instance { get; private set; }
 
     [Header("Polling")]
-    public float pollIntervalSeconds = 300f;
+    public float pollIntervalSeconds = 10f; // Reduced for faster testing
 
     [Header("Thresholds (0-100)")]
     [Range(0, 100)] public int lowThreshold  = 20;
@@ -36,20 +36,14 @@ public class EpsonInkMonitor : MonoBehaviour
     [DllImport(PSM_DLL, CallingConvention = CallingConvention.Cdecl)]
     private static extern int PSM_ExitInstance();
     [DllImport(PSM_DLL, CallingConvention = CallingConvention.Cdecl)]
-    private static extern int PSM_InitInstanceEx(int nType);
-    [DllImport(PSM_DLL, CallingConvention = CallingConvention.Cdecl)]
     private static extern int PSM_GetSDKVersion(IntPtr pVersion);
-
-    [DllImport(PSM_DLL, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Auto)]
+ 
+    [DllImport(PSM_DLL, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Unicode)]
     private static extern int PSM_OpenPrinter(string printerName, out IntPtr phPrinter);
-    [DllImport(PSM_DLL, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Auto)]
-    private static extern int PSM_OpenPrinterEx(string printerName, int nOption, out IntPtr phPrinter);
+    [DllImport(PSM_DLL, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+    private static extern int PSM_OpenPrinterA(string printerName, out IntPtr phPrinter);
     [DllImport(PSM_DLL, CallingConvention = CallingConvention.Cdecl)]
     private static extern int PSM_ClosePrinter(IntPtr hPrinter);
-    [DllImport(PSM_DLL, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Auto)]
-    private static extern int PSM_RegisterPrinter(string printerName, int nOption);
-    [DllImport(PSM_DLL, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Auto)]
-    private static extern int PSM_UnregisterPrinter(string printerName);
     [DllImport(PSM_DLL, CallingConvention = CallingConvention.Cdecl)]
     private static extern int PSM_GetPrinterInformation(IntPtr hPrinter, int nInfoId, IntPtr pInfo, int infoSize);
 
@@ -63,8 +57,14 @@ public class EpsonInkMonitor : MonoBehaviour
 
     private static string ColorName(uint colorId) => colorId switch
     {
-        0 => "Cyan", 1 => "Magenta", 2 => "Yellow", 3 => "Black", 
-        4 => "Light Cyan", 5 => "Light Magenta", _ => $"Ink#{colorId}"
+        0 => "Cyan", 
+        1 => "Magenta", 
+        2 => "Yellow", 
+        3 => "Black", 
+        4 => "Light Cyan", 
+        5 => "Light Magenta", 
+        10 => "Maintenance Tank",
+        _ => $"Ink#{colorId}"
     };
 
     private bool _sdkInitialized = false;
@@ -80,37 +80,26 @@ public class EpsonInkMonitor : MonoBehaviour
     {
         try
         {
-            // Try standard init first as it's the safest.
+            // Back to absolute safest init to stop crashes
             int ret = PSM_InitInstance();
-            
-            // If standard fails, try Standard mode via Ex
-            if (ret != 0) ret = PSM_InitInstanceEx(0);
-            
-            // If still fails, try Industrial mode (nType=1)
-            if (ret != 0) ret = PSM_InitInstanceEx(1);
-
             _sdkInitialized = (ret == 0);
+            
             if (_sdkInitialized)
             {
                 IntPtr pVer = Marshal.AllocHGlobal(512);
                 try { 
                     int vRet = PSM_GetSDKVersion(pVer); 
-                    // Try Auto (Unicode on modern Windows) then fallback to Ansi if empty
-                    _sdkVersion = (vRet == 0) ? Marshal.PtrToStringAuto(pVer) : "VerErr";
-                    if (string.IsNullOrEmpty(_sdkVersion)) _sdkVersion = Marshal.PtrToStringAnsi(pVer);
+                    _sdkVersion = (vRet == 0) ? (Marshal.PtrToStringUni(pVer) ?? Marshal.PtrToStringAnsi(pVer)) : "Err";
                 }
-                catch { _sdkVersion = "VerEx"; }
+                catch { _sdkVersion = "Ex"; }
                 finally { Marshal.FreeHGlobal(pVer); }
-                Debug.Log($"[EpsonInkMonitor] SDK Init Success ({ret}). Arch: {(IntPtr.Size == 8 ? "64" : "32")}-bit | Ver: {_sdkVersion}");
+                Debug.Log($"[EpsonInkMonitor] SDK Init: {ret} | Ver: {_sdkVersion}");
+                FireIfChanged(false, false, "SDK Initialized.\n<color=yellow>Searching for printer...</color>");
             }
             else {
-                Debug.LogWarning($"[EpsonInkMonitor] SDK Init Failed with code: {ret}");
-                InkStatusMessage = $"SDK Init Failed: {ret}";
+                Debug.LogWarning($"[EpsonInkMonitor] SDK Init Failed: {ret}");
+                FireIfChanged(false, false, $"<color=red>SDK Init Failed: {ret}</color>");
             }
-        }
-        catch (EntryPointNotFoundException ex) { 
-            Debug.LogError($"[EpsonInkMonitor] DLL Entry point missing: {ex.Message}");
-            _sdkInitialized = false;
         }
         catch (Exception ex) { 
             Debug.LogError($"[EpsonInkMonitor] Init Error: {ex.Message}"); 
@@ -159,76 +148,33 @@ public class EpsonInkMonitor : MonoBehaviour
         try
         {
             var variations = new System.Collections.Generic.List<string>();
+            if (!string.IsNullOrEmpty(pName)) variations.Add(pName);
             
-            // 0. Try empty string (Default printer)
-            variations.Add("");
-
-            // 1. Add all installed printers that match keywords FIRST (Highest priority)
+            // System printers fallback
             foreach (string p in System.Drawing.Printing.PrinterSettings.InstalledPrinters) {
-                if (p.Contains("SL-D") || p.Contains("D500") || p.Contains("SLD") || p.Contains("SureLab") || p.Contains("Epson")) {
-                    if (!variations.Contains(p)) {
-                        variations.Add(p);
-                    }
+                if (p.Contains("SL-D") || p.Contains("D500") || p.Contains("EPSON")) {
+                    if (!variations.Contains(p)) variations.Add(p);
                 }
             }
 
-            // 2. Add current selected printer and its variations
-            if (!string.IsNullOrEmpty(pName)) {
-                if (!variations.Contains(pName)) variations.Insert(0, pName);
-                string v1 = pName.Replace(" Series", "");
-                string v2 = pName.Replace("EPSON ", "");
-                if (!variations.Contains(v1)) variations.Add(v1);
-                if (!variations.Contains(v2)) variations.Add(v2);
-            }
-
-            // 3. Add USB ports and Epson special ports
-            for (int i=1; i<=8; i++) {
-                variations.Add($"USB00{i}");
-                variations.Add($"EPUSB{i}:");
-                variations.Add($"EPUSB{i}");
-            }
+            // USB Fallback
+            for (int i=1; i<=4; i++) variations.Add($"USB00{i}");
             
             int lastErr = 0;
-            string bestName = "";
             string errSummary = "";
-
-            // Increase USB port range
-            for (int i=5; i<=8; i++) variations.Add($"USB00{i}");
 
             foreach (var name in variations)
             {
-                // Try multiple open modes (Simplified to avoid crashes)
-                IntPtr hDirect = IntPtr.Zero;
-                int[] directModes = { -1, 1 }; 
-                foreach (int mode in directModes) {
-                    int ret = (mode == -1) ? PSM_OpenPrinter(name, out hDirect) : PSM_OpenPrinterEx(name, mode, out hDirect);
-                    if (ret == 0 && hDirect != IntPtr.Zero) { hPrinter = hDirect; bestName = name; break; }
-                    lastErr = ret;
-                }
-                if (hPrinter != IntPtr.Zero) break;
-
-                // Try with registration
-                for (int m=0; m<=1; m++) {
-                    PSM_RegisterPrinter(name, m);
-                    
-                    // Small sync wait
-                    var watch = System.Diagnostics.Stopwatch.StartNew();
-                    while(watch.ElapsedMilliseconds < 50) { }
-                    
-                    IntPtr h = IntPtr.Zero;
-                    int[] openModes = { -1, 1 }; 
-                    foreach (int mode in openModes) {
-                        int ret = (mode == -1) ? PSM_OpenPrinter(name, out h) : PSM_OpenPrinterEx(name, mode, out h);
-                        if (ret == 0 && h != IntPtr.Zero) { hPrinter = h; bestName = name; break; }
-                        lastErr = ret;
-                    }
-
-                    if (hPrinter != IntPtr.Zero) break;
-                    else PSM_UnregisterPrinter(name);
-                }
+                FireIfChanged(false, false, $"SDK Initialized.\n<color=yellow>Checking: {name}</color>");
                 
-                if (hPrinter != IntPtr.Zero) break;
-                else if (errSummary.Length < 60) errSummary += $"{name}:{lastErr} ";
+                // Try Unicode first, then ANSI fallback
+                int ret = PSM_OpenPrinter(name, out hPrinter);
+                if (ret != 0) ret = PSM_OpenPrinterA(name, out hPrinter);
+                
+                if (ret == 0 && hPrinter != IntPtr.Zero) break;
+                
+                lastErr = ret;
+                if (errSummary.Length < 120) errSummary += $"{name}:{ret} ";
             }
 
             if (hPrinter == IntPtr.Zero) {

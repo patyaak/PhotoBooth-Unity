@@ -550,7 +550,9 @@ public class PrintingManager : MonoBehaviour
     {
         return normalizedDriverName.Contains("borderless")
             || normalizedDriverName.Contains("borderfree")
-            || normalizedDriverName.Contains("border");
+            || normalizedDriverName.Contains("border")
+            || normalizedDriverName.Contains("フチなし")
+            || normalizedDriverName.Contains("ふちなし");
     }
 
     #endregion
