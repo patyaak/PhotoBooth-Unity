@@ -35,6 +35,7 @@ public class WebSocketManager : MonoBehaviour
 
     private void Awake()
     {
+        Debug.LogError("[WS] CRITICAL TEST: WebSocketManager script is loading!");
         if (Instance == null)
         {
             Instance = this;
@@ -68,14 +69,11 @@ public class WebSocketManager : MonoBehaviour
             return;
         }
 
-        string boothKey = PlayerPrefs.GetString("booth_id", "");
-        if (string.IsNullOrEmpty(boothKey))
-        {
-            Debug.LogWarning("[WS] Cannot connect: booth_id is missing in PlayerPrefs");
-            return;
-        }
+        string appKey = LoginManager.Instance != null ? LoginManager.Instance.boothKey : "boothkey123";
+        string deviceID = SystemInfo.deviceUniqueIdentifier;
 
-        string url = API.GetWebSocketURL(secureConnection, boothKey);
+        string url = API.GetWebSocketURL(secureConnection, appKey);
+        Debug.Log($"[WS] Connecting with App Key: {appKey} | Device ID: {deviceID}");
         Debug.Log("[WS] Connecting to: " + url);
 
         ws = new WebSocket(url);
@@ -83,7 +81,7 @@ public class WebSocketManager : MonoBehaviour
         ws.OnOpen += () =>
         {
             Debug.Log("[WS] Connected");
-            SubscribeToReprintChannel(boothKey);
+            SubscribeToReprintChannel(deviceID);
         };
 
         ws.OnMessage += (bytes) =>
@@ -120,11 +118,11 @@ public class WebSocketManager : MonoBehaviour
         }
     }
 
-    private async void SubscribeToReprintChannel(string boothKey)
+    private async void SubscribeToReprintChannel(string deviceID)
     {
         if (ws == null || ws.State != WebSocketState.Open) return;
 
-        string channelName = $"reprint.{boothKey}";
+        string channelName = $"reprint.{deviceID}";
         
         var subEvent = new PusherEvent
         {
@@ -133,12 +131,13 @@ public class WebSocketManager : MonoBehaviour
         };
 
         string json = JsonConvert.SerializeObject(subEvent);
-        Debug.Log("[WS] Subscribing to: " + channelName);
+        Debug.Log($"[WS] Attempting subscription to channel: {channelName}");
 
         try
         {
             await ws.SendText(json);
             isSubscribed = true;
+            Debug.Log($"[WS] Subscription request sent for: {channelName}");
         }
         catch (Exception ex)
         {

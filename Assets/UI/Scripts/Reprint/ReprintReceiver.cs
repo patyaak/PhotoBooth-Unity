@@ -28,13 +28,15 @@ public class ReprintReceiver : MonoBehaviour
 
     private void Awake()
     {
+        Debug.LogError("[ReprintReceiver] CRITICAL TEST: Script is loading!");
         if (Instance == null)
         {
             Instance = this;
+            DontDestroyOnLoad(gameObject);
             // Optionally set deviceId from PlayerPrefs if not set in inspector
             if (string.IsNullOrEmpty(deviceId))
             {
-                deviceId = PlayerPrefs.GetString("booth_id", "");
+                deviceId = SystemInfo.deviceUniqueIdentifier;
             }
         }
         else
@@ -58,9 +60,11 @@ public class ReprintReceiver : MonoBehaviour
 
             if (evt != "reprint-requested")
             {
+                Debug.Log($"[ReprintReceiver] Ignored event type: {evt}");
                 return; // Ignore other events
             }
 
+            Debug.Log("[ReprintReceiver] Event 'reprint-requested' detected. Parsing data...");
             JToken dataToken = j["data"];
             if (dataToken == null) return;
 
@@ -87,11 +91,11 @@ public class ReprintReceiver : MonoBehaviour
             string currentBoothId = PlayerPrefs.GetString("booth_id", "");
             if (data.booth_id != currentBoothId && data.booth_id != deviceId)
             {
-                Debug.Log($"[ReprintReceiver] Ignored job for another device. Target: {data.booth_id}, Local: {currentBoothId}");
+                Debug.LogWarning($"[ReprintReceiver] VALIDATION FAILED. Job for: {data.booth_id}. Local IDs: Booth={currentBoothId}, Hardware={deviceId}");
                 return;
             }
 
-            Debug.Log($"[ReprintReceiver] Processing reprint for Order: {data.order_id}, Photo: {data.photo_id}");
+            Debug.Log($"[ReprintReceiver] VALIDATION SUCCESS. Processing reprint for Order: {data.order_id}, Photo: {data.photo_id}");
             StartCoroutine(DownloadAndPrint(data));
         }
         catch (Exception ex)
@@ -137,9 +141,44 @@ public class ReprintReceiver : MonoBehaviour
 
             Debug.Log("[ReprintReceiver] Image downloaded. Sending to PrintingManager...");
 
+            // Show Printing UI (using references from PhotoShootingManager)
+            var psm = PhotoShootingManager.Instance;
+            if (psm != null)
+            {
+                if (psm.printingPanel != null) psm.printingPanel.SetActive(true);
+                if (psm.printingInProgress != null) psm.printingInProgress.SetActive(true);
+                if (psm.printingDone != null) psm.printingDone.SetActive(false);
+            }
+
             // Pass the texture and frame type (if any) to the printing manager
-            // If frame_type is missing, PrintingManager will fallback to orientation detection
             PrintingManager.Instance.PrintFinalImage(tex, data.frame_type ?? "");
+
+            // Wait for the print to complete (consistent with PhotoShootingManager logic)
+            yield return new WaitForSeconds(2.0f);
+            while (PrintingManager.Instance.IsPrinting)
+            {
+                yield return new WaitForSeconds(0.5f);
+            }
+
+            // Update UI to "Done"
+            if (psm != null)
+            {
+                if (psm.printingInProgress != null) psm.printingInProgress.SetActive(false);
+                if (psm.printingDone != null)
+                {
+                    psm.printingDone.SetActive(true);
+                    AudioManager.Instance?.PlayPrintingDone();
+                }
+            }
+
+            // Wait for user to see "Done" then hide the panel
+            yield return new WaitForSeconds(4.0f);
+            if (psm != null && psm.printingPanel != null)
+            {
+                psm.printingPanel.SetActive(false);
+            }
+            
+            Debug.Log("[ReprintReceiver] Reprint printing workflow completed.");
         }
     }
 }
