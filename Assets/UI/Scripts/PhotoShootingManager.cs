@@ -88,6 +88,7 @@ public class PhotoShootingManager : MonoBehaviour
 
     private Texture2D finalComposedImageForPrint;
     private GameObject instantiatedFrameObject;
+    private string currentOrderId; // TRACK CURRENT SESSION ORDER
 
 
     private void UpdateRemainingShots(bool isBeautificationActive)
@@ -423,6 +424,7 @@ public class PhotoShootingManager : MonoBehaviour
         photoShootPanel.SetActive(true); // Activate early to ensure child objects (CameraPreview) are findable
 
         currentFrameItem = selectedFrame;
+        currentOrderId = orderID; // STORE FOR LATER USE IN UPLOAD
         totalAllowedShots = selectedFrame.frameData.number_of_shots;
         placeholders.Clear();
         photoByIndex.Clear();
@@ -1118,7 +1120,7 @@ public class PhotoShootingManager : MonoBehaviour
         return croppedTex;
     }
 
-    private IEnumerator UploadFinalPhoto(Texture2D photoTexture, string orderId, string frameId, bool paymentActive)
+    private IEnumerator UploadFinalPhoto(Texture2D photoTexture, string orderId, string frameId, bool paymentActive, string userId = "", string category = "")
     {
         if (photoTexture == null)
         {
@@ -1139,6 +1141,8 @@ public class PhotoShootingManager : MonoBehaviour
         Debug.Log($"📤 Uploading photo to {url}");
         Debug.Log($"   - order_id: '{orderId}' (Length: {orderId?.Length ?? 0})");
         Debug.Log($"   - frame_id: {frameId}");
+        Debug.Log($"   - category: {category}");
+        Debug.Log($"   - user_id: {userId}");
         Debug.Log($"   - payment_active: {paymentActive}");
         Debug.Log($"   - photo size: {photoBytes.Length} bytes ({photoTexture.width}x{photoTexture.height})");
 
@@ -1147,6 +1151,8 @@ public class PhotoShootingManager : MonoBehaviour
         string orderIdToSend = string.IsNullOrEmpty(orderId) ? "" : orderId;
         formData.AddField("order_id", orderIdToSend);
         formData.AddField("frame_id", frameId);
+        formData.AddField("category", category);
+        formData.AddField("user_id", userId);
         formData.AddField("payment_active", paymentActive.ToString().ToLower());
         formData.AddBinaryData("photo", photoBytes, "photo.png", "image/png");
 
@@ -1527,12 +1533,14 @@ public class PhotoShootingManager : MonoBehaviour
         if (loadingPanel != null) loadingPanel.SetActive(true);
 
         // Upload the image
-        orderId = PaymentManager.Instance?.currentOrderId ?? "";
+        orderId = !string.IsNullOrEmpty(currentOrderId) ? currentOrderId : (PaymentManager.Instance?.currentOrderId ?? "");
         string frameId = currentFrameItem.frameData.frame_id;
+        string category = currentFrameItem.frameData.category;
+        string userId = PlayerPrefs.GetString("user_id", "");
         bool paymentActive = PlayerPrefs.GetInt("payments_enabled", 0) == 1;
 
         // Start upload (now for both Login and Guest mode)
-        yield return StartCoroutine(UploadFinalPhoto(finalComposedImageForPrint, orderId, frameId, paymentActive));
+        yield return StartCoroutine(UploadFinalPhoto(finalComposedImageForPrint, orderId, frameId, paymentActive, userId, category));
 
         if (PaymentManager.Instance != null)
             PaymentManager.Instance.currentOrderId = null;

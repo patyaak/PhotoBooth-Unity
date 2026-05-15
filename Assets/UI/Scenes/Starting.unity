@@ -863,7 +863,7 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: Landscape
+  m_text: "\u6A2A\u30EC\u30A4\u30A2\u30A6\u30C8"
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: 6e02c3b954a11874d8b182ce33a98c9c, type: 2}
   m_sharedMaterial: {fileID: -7904051874817309089, guid: 6e02c3b954a11874d8b182ce33a98c9c, type: 2}
@@ -2267,7 +2267,7 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: Portrait
+  m_text: "\u7E26\u30EC\u30A4\u30A2\u30A6\u30C8"
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: 6e02c3b954a11874d8b182ce33a98c9c, type: 2}
   m_sharedMaterial: {fileID: -7904051874817309089, guid: 6e02c3b954a11874d8b182ce33a98c9c, type: 2}

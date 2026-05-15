@@ -2502,10 +2502,10 @@ MonoBehaviour:
   gatchaRevealSound: {fileID: 8300000, guid: ce22bd7607f16ed488b1c09410802fd3, type: 3}
   shutterSound: {fileID: 8300000, guid: f8b7dd7dab22df24d806256e04a6090c, type: 3}
   frameSelectionSound: {fileID: 8300000, guid: 4bf98f2548ba8794e971d57457ef9c99, type: 3}
-  timer3SecSound: {fileID: 8300000, guid: 6a9effd4f3402814fa683da0dc0e3d45, type: 3}
-  timer5SecSound: {fileID: 8300000, guid: 324983cc70ab4124facc6a853e099809, type: 3}
-  timer7SecSound: {fileID: 8300000, guid: 76843bd572e9e3c4f9550e8f650b1447, type: 3}
-  timer10SecSound: {fileID: 8300000, guid: 1e5223420d8f75343a205d2d85b91f03, type: 3}
+  timer3SecSound: {fileID: 8300000, guid: fffd72abf928af242953cba32da3daed, type: 3}
+  timer5SecSound: {fileID: 8300000, guid: 616d25b6295cb6145b77dc3687609921, type: 3}
+  timer7SecSound: {fileID: 8300000, guid: 49e6eb01677770242a61379d8f653ed1, type: 3}
+  timer10SecSound: {fileID: 8300000, guid: cc2a8e824dfa9744ea444c4d29bfebb5, type: 3}
   printingDoneSound: {fileID: 8300000, guid: d22d5de59d7faa24abe4f67689504a4f, type: 3}
 --- !u!1 &167785300
 GameObject:
@@ -29182,7 +29182,7 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_Sprite: {fileID: 21300000, guid: b971b411832192e40b4f841bd230342a, type: 3}
+  m_Sprite: {fileID: 21300000, guid: a39e90d71f03302478c95a2983790a62, type: 3}
   m_Type: 0
   m_PreserveAspect: 1
   m_FillCenter: 1

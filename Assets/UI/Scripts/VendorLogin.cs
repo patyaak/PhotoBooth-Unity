@@ -67,6 +67,9 @@ public class VendorLogin : MonoBehaviour
         if (vendorPanel != null) 
             vendorPanel.SetActive(true);
 
+        if (versionText != null)
+            versionText.text = "v" + Application.version;
+
         defaultBackground = backgroundImage.sprite;
         defaultLogo = logoImage.sprite;
         defaultQRMobile = qrMobileImage.sprite;
