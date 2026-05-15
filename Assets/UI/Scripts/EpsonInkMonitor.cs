@@ -5,27 +5,35 @@ using UnityEngine;
 using UnityEngine.Networking;
 
 /// <summary>
-/// Monitors Epson SL-D500 ink levels via PSM_SDK.dll.
-/// Fires OnInkStatusChanged whenever the ink state changes.
+/// Epson SL-D500 Ink Monitor using PSM_SDK.dll.
+/// Checks ink level only for the currently selected printer.
 /// </summary>
 public class EpsonInkMonitor : MonoBehaviour
 {
     public static EpsonInkMonitor Instance { get; private set; }
 
     [Header("Polling")]
-    public float pollIntervalSeconds = 10f; // Reduced for faster testing
+    public float pollIntervalSeconds = 10f;
+    public bool autoStartPolling = true;
 
-    [Header("Thresholds (0-100)")]
-    [Range(0, 100)] public int lowThreshold  = 20;
+    [Header("Thresholds")]
+    [Range(0, 100)] public int lowThreshold = 20;
     [Range(0, 100)] public int emptyThreshold = 5;
 
-    [Header("Simulation (Editor / test)")]
+    [Header("Simulation")]
     public SimulatedInkState simulatedState = SimulatedInkState.None;
-    public enum SimulatedInkState { None, SimulateLow, SimulateEmpty, Random }
 
-    public bool IsInkLow   { get; private set; }
+    public enum SimulatedInkState
+    {
+        None,
+        SimulateLow,
+        SimulateEmpty,
+        Random
+    }
+
+    public bool IsInkLow { get; private set; }
     public bool IsInkEmpty { get; private set; }
-    public string InkStatusMessage { get; private set; } = string.Empty;
+    public string InkStatusMessage { get; private set; } = "";
 
     public static event Action<bool, bool, string> OnInkStatusChanged;
 
@@ -33,245 +41,498 @@ public class EpsonInkMonitor : MonoBehaviour
 
     [DllImport(PSM_DLL, CallingConvention = CallingConvention.Cdecl)]
     private static extern int PSM_InitInstance();
+
     [DllImport(PSM_DLL, CallingConvention = CallingConvention.Cdecl)]
     private static extern int PSM_ExitInstance();
-    [DllImport(PSM_DLL, CallingConvention = CallingConvention.Cdecl)]
-    private static extern int PSM_GetSDKVersion(IntPtr pVersion);
- 
-    [DllImport(PSM_DLL, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Unicode)]
-    private static extern int PSM_OpenPrinter(string printerName, out IntPtr phPrinter);
-    [DllImport(PSM_DLL, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+
+    [DllImport(PSM_DLL, CharSet = CharSet.Unicode)]
+    private static extern int PSM_OpenPrinterW(string printerName, out IntPtr phPrinter);
+
+    [DllImport(PSM_DLL, CharSet = CharSet.Ansi)]
     private static extern int PSM_OpenPrinterA(string printerName, out IntPtr phPrinter);
-    [DllImport(PSM_DLL, CallingConvention = CallingConvention.Cdecl)]
+
+    [DllImport(PSM_DLL)]
     private static extern int PSM_ClosePrinter(IntPtr hPrinter);
-    [DllImport(PSM_DLL, CallingConvention = CallingConvention.Cdecl)]
-    private static extern int PSM_GetPrinterInformation(IntPtr hPrinter, int nInfoId, IntPtr pInfo, int infoSize);
 
+    [DllImport(PSM_DLL)]
+    private static extern int PSM_GetPrinterInformation(
+        IntPtr hPrinter,
+        int nInfoId,
+        IntPtr pInfo,
+        int infoSize
+    );
+
+    // IMPORTANT:
+    // Confirm this value from Epson PSM SDK documentation.
+    // If wrong, SDK may return invalid data or crash.
+    private const int INFO_ID_INK = 1;
+
+    private const int INFO_HEADER_SIZE = 8;
     private const int INK_INFO_ELEMENT_SIZE = 12;
-    private const int MAX_INK_SLOTS         = 8;
-    private const int INFO_HEADER_SIZE      = 8;
-    private const int INFO_BUF_SIZE         = INFO_HEADER_SIZE + (MAX_INK_SLOTS * INK_INFO_ELEMENT_SIZE) + 512;
+    private const int MAX_INK_SLOTS = 8;
+    private const int INFO_BUF_SIZE = INFO_HEADER_SIZE + (MAX_INK_SLOTS * INK_INFO_ELEMENT_SIZE) + 512;
 
-    private const uint INK_STATUS_EMPTY    = 0x01;
-    private const uint INK_STATUS_LOW      = 0x02;
+    private const uint INK_STATUS_EMPTY = 0x01;
+    private const uint INK_STATUS_LOW = 0x02;
 
-    private static string ColorName(uint colorId) => colorId switch
+    private bool _sdkInitialized;
+    private Coroutine _pollCoroutine;
+
+    private bool _lastLow;
+    private bool _lastEmpty;
+    private string _lastMessage = "";
+
+    private static string ColorName(uint colorId)
     {
-        0 => "Cyan", 
-        1 => "Magenta", 
-        2 => "Yellow", 
-        3 => "Black", 
-        4 => "Light Cyan", 
-        5 => "Light Magenta", 
-        10 => "Maintenance Tank",
-        _ => $"Ink#{colorId}"
-    };
-
-    private bool _sdkInitialized = false;
-    private bool _lastLow = false, _lastEmpty = false;
-    private string _lastMsg = string.Empty;
-    private string _sdkVersion = "Unknown";
-
-    private void Awake() { if (Instance == null) Instance = this; else Destroy(gameObject); }
-    private void Start() { InitSDK(); StartCoroutine(PollRoutine()); }
-    private void OnDestroy() { ShutdownSDK(); }
-
-    private void InitSDK()
-    {
-        try
+        switch (colorId)
         {
-            // Back to absolute safest init to stop crashes
-            int ret = PSM_InitInstance();
-            _sdkInitialized = (ret == 0);
-            
-            if (_sdkInitialized)
-            {
-                IntPtr pVer = Marshal.AllocHGlobal(512);
-                try { 
-                    int vRet = PSM_GetSDKVersion(pVer); 
-                    _sdkVersion = (vRet == 0) ? (Marshal.PtrToStringUni(pVer) ?? Marshal.PtrToStringAnsi(pVer)) : "Err";
-                }
-                catch { _sdkVersion = "Ex"; }
-                finally { Marshal.FreeHGlobal(pVer); }
-                Debug.Log($"[EpsonInkMonitor] SDK Init: {ret} | Ver: {_sdkVersion}");
-                FireIfChanged(false, false, "SDK Initialized.\n<color=yellow>Searching for printer...</color>");
-            }
-            else {
-                Debug.LogWarning($"[EpsonInkMonitor] SDK Init Failed: {ret}");
-                FireIfChanged(false, false, $"<color=red>SDK Init Failed: {ret}</color>");
-            }
-        }
-        catch (Exception ex) { 
-            Debug.LogError($"[EpsonInkMonitor] Init Error: {ex.Message}"); 
-            _sdkInitialized = false;
+            case 0: return "Cyan";
+            case 1: return "Magenta";
+            case 2: return "Yellow";
+            case 3: return "Black";
+            case 4: return "Light Cyan";
+            case 5: return "Light Magenta";
+            case 10: return "Maintenance Tank";
+            default: return "Ink#" + colorId;
         }
     }
 
-    private void ShutdownSDK() { if (_sdkInitialized) PSM_ExitInstance(); _sdkInitialized = false; }
+    private void Awake()
+    {
+        if (Instance == null)
+        {
+            Instance = this;
+        }
+        else
+        {
+            Destroy(gameObject);
+            return;
+        }
+    }
+
+    private void Start()
+    {
+        InitSDK();
+
+        if (autoStartPolling)
+        {
+            _pollCoroutine = StartCoroutine(PollRoutine());
+        }
+    }
+
+    private void OnDestroy()
+    {
+        if (_pollCoroutine != null)
+        {
+            StopCoroutine(_pollCoroutine);
+            _pollCoroutine = null;
+        }
+
+        ShutdownSDK();
+
+        if (Instance == this)
+        {
+            Instance = null;
+        }
+    }
+
+    private void InitSDK()
+    {
+        if (_sdkInitialized) return;
+
+        try
+        {
+            int ret = PSM_InitInstance();
+
+            if (ret == 0)
+            {
+                _sdkInitialized = true;
+                Debug.Log("[EpsonInkMonitor] Epson SDK initialized.");
+                FireIfChanged(false, false, "Epson SDK initialized.\n<color=yellow>Searching for printer...</color>");
+            }
+            else
+            {
+                _sdkInitialized = false;
+                Debug.LogError("[EpsonInkMonitor] Epson SDK init failed: " + ret);
+                FireIfChanged(false, false, "<color=red>Epson SDK init failed: " + ret + "</color>");
+            }
+        }
+        catch (Exception ex)
+        {
+            _sdkInitialized = false;
+            Debug.LogError("[EpsonInkMonitor] SDK init exception: " + ex.Message);
+            FireIfChanged(false, false, "<color=red>SDK init exception: " + ex.Message + "</color>");
+        }
+    }
+
+    private void ShutdownSDK()
+    {
+        if (!_sdkInitialized) return;
+
+        try
+        {
+            PSM_ExitInstance();
+        }
+        catch (Exception ex)
+        {
+            Debug.LogWarning("[EpsonInkMonitor] SDK shutdown exception: " + ex.Message);
+        }
+
+        _sdkInitialized = false;
+    }
 
     private IEnumerator PollRoutine()
     {
-        yield return new WaitForSeconds(5f);
-        while (true) { CheckInkLevel(); yield return new WaitForSeconds(pollIntervalSeconds); }
+        yield return new WaitForSeconds(3f);
+
+        while (true)
+        {
+            CheckInkLevel();
+            yield return new WaitForSeconds(pollIntervalSeconds);
+        }
     }
 
     private void Update()
     {
-        if (Input.GetKey(KeyCode.LeftShift) && Input.GetKeyDown(KeyCode.S)) {
-            simulatedState = (simulatedState == SimulatedInkState.None) ? SimulatedInkState.Random : SimulatedInkState.None;
+        if (Input.GetKey(KeyCode.LeftShift) && Input.GetKeyDown(KeyCode.I))
+        {
             CheckInkLevel();
         }
-        if (Input.GetKey(KeyCode.LeftShift) && Input.GetKeyDown(KeyCode.I)) CheckInkLevel();
+
+        if (Input.GetKey(KeyCode.LeftShift) && Input.GetKeyDown(KeyCode.S))
+        {
+            simulatedState = simulatedState == SimulatedInkState.None
+                ? SimulatedInkState.Random
+                : SimulatedInkState.None;
+
+            CheckInkLevel();
+        }
     }
 
-    /// <summary>Call this to force an immediate re-check (e.g. after a print job).</summary>
-    public void ForceCheck() => CheckInkLevel();
-
-    /// <summary>
-    /// Sets state to Random and forces a check. 
-    /// Can be linked to a UI button for testing.
-    /// </summary>
-    public void RandomizeAndCheck()
+    public void ForceCheck()
     {
-        simulatedState = SimulatedInkState.Random;
         CheckInkLevel();
     }
 
-    private void CheckInkLevel()
+    public void CheckInkLevel()
     {
-        if (simulatedState != SimulatedInkState.None) { RunSimulation(); return; }
-        if (!_sdkInitialized) return;
+        if (simulatedState != SimulatedInkState.None)
+        {
+            RunSimulation();
+            return;
+        }
 
-        string pName = PrintingManager.Instance?.selectedPrinter?.Trim() ?? "";
+        if (!_sdkInitialized)
+        {
+            FireIfChanged(false, false, "<color=red>Epson SDK is not initialized.</color>");
+            return;
+        }
+
         IntPtr hPrinter = IntPtr.Zero;
-        IntPtr pBuf = IntPtr.Zero;
+        IntPtr pBuffer = IntPtr.Zero;
+
         try
         {
-            var variations = new System.Collections.Generic.List<string>();
-            if (!string.IsNullOrEmpty(pName)) variations.Add(pName);
+            // 1. Build a list of potential printer names to try
+            var printerVariations = new System.Collections.Generic.List<string>();
             
-            // System printers fallback
-            foreach (string p in System.Drawing.Printing.PrinterSettings.InstalledPrinters) {
-                if (p.Contains("SL-D") || p.Contains("D500") || p.Contains("EPSON")) {
-                    if (!variations.Contains(p)) variations.Add(p);
+            // Priority: The printer selected in PrintingManager
+            string selected = PrintingManager.Instance?.selectedPrinter?.Trim() ?? "";
+            if (!string.IsNullOrEmpty(selected)) {
+                printerVariations.Add(selected);
+                // Try without "EPSON "
+                string noEpson = selected.Replace("EPSON ", "").Trim();
+                if (!printerVariations.Contains(noEpson)) printerVariations.Add(noEpson);
+                // Try without " Series"
+                string noSeries = selected.Replace(" Series", "").Trim();
+                if (!printerVariations.Contains(noSeries)) printerVariations.Add(noSeries);
+                // Try both removed
+                string minimal = noEpson.Replace(" Series", "").Trim();
+                if (!printerVariations.Contains(minimal)) printerVariations.Add(minimal);
+            }
+
+            // Fallback 1: Scan all installed system printers
+            try {
+                foreach (string p in System.Drawing.Printing.PrinterSettings.InstalledPrinters) {
+                    if (p.Contains("SL-D") || p.Contains("D500") || p.Contains("EPSON")) {
+                        if (!printerVariations.Contains(p)) printerVariations.Add(p);
+                        string clean = p.Replace("EPSON ", "").Replace(" Series", "").Trim();
+                        if (!printerVariations.Contains(clean)) printerVariations.Add(clean);
+                    }
                 }
-            }
+            } catch { }
 
-            // USB Fallback
-            for (int i=1; i<=4; i++) variations.Add($"USB00{i}");
-            
-            int lastErr = 0;
-            string errSummary = "";
+            // Fallback 2: Common port names
+            for (int i = 1; i <= 4; i++) printerVariations.Add($"USB00{i}");
 
-            foreach (var name in variations)
+            int lastErrorW = 0;
+            int lastErrorA = 0;
+            string lastAttemptedName = "";
+
+            // 2. Loop through variations
+            foreach (string name in printerVariations)
             {
-                FireIfChanged(false, false, $"SDK Initialized.\n<color=yellow>Checking: {name}</color>");
+                lastAttemptedName = name;
+                FireIfChanged(false, false, $"<color=yellow>Checking printer: {name}</color>");
                 
-                // Try Unicode first, then ANSI fallback
-                int ret = PSM_OpenPrinter(name, out hPrinter);
-                if (ret != 0) ret = PSM_OpenPrinterA(name, out hPrinter);
-                
-                if (ret == 0 && hPrinter != IntPtr.Zero) break;
-                
-                lastErr = ret;
-                if (errSummary.Length < 120) errSummary += $"{name}:{ret} ";
+                int openRetW = -1;
+                try { openRetW = PSM_OpenPrinterW(name, out hPrinter); } catch { }
+                if (openRetW == 0 && hPrinter != IntPtr.Zero) break;
+                lastErrorW = openRetW;
+
+                int openRetA = -1;
+                try { openRetA = PSM_OpenPrinterA(name, out hPrinter); } catch { }
+                if (openRetA == 0 && hPrinter != IntPtr.Zero) break;
+                lastErrorA = openRetA;
+
+                if (hPrinter != IntPtr.Zero) { PSM_ClosePrinter(hPrinter); hPrinter = IntPtr.Zero; }
             }
 
-            if (hPrinter == IntPtr.Zero) {
-                FireIfChanged(false, false, $"<color=red>Error: {lastErr}</color>\nSDK: {_sdkVersion} | Checked: {variations.Count}\nLast: {errSummary}\nTry Shift+S");
+            if (hPrinter == IntPtr.Zero)
+            {
+                string debugInfo = $"<color=red>Could not find printer.</color>\nName: {lastAttemptedName}\nErrW: {lastErrorW} | ErrA: {lastErrorA}\n\nList:\n";
+                foreach (var p in printerVariations) debugInfo += $"- {p}\n";
+                FireIfChanged(false, false, debugInfo);
                 return;
             }
 
-            pBuf = Marshal.AllocHGlobal(INFO_BUF_SIZE);
-            for (int i = 0; i < INFO_BUF_SIZE; i++) Marshal.WriteByte(pBuf, i, 0);
+            // 3. Get Ink Information
+            pBuffer = Marshal.AllocHGlobal(INFO_BUF_SIZE);
+            ZeroMemory(pBuffer, INFO_BUF_SIZE);
 
-            if (PSM_GetPrinterInformation(hPrinter, 1, pBuf, INFO_BUF_SIZE) == 0) ParseInkInfo(pBuf);
+            int infoRet = PSM_GetPrinterInformation(hPrinter, INFO_ID_INK, pBuffer, INFO_BUF_SIZE);
+
+            if (infoRet != 0)
+            {
+                FireIfChanged(
+                    false,
+                    false,
+                    $"<color=red>Failed to get ink data.</color>\nPrinter: {lastAttemptedName}\nError: {infoRet}"
+                );
+                return;
+            }
+
+            ParseInkInfo(pBuffer);
         }
-        catch (Exception ex) { Debug.LogError($"[EpsonInkMonitor] Check Error: {ex.Message}"); }
-        finally {
-            if (pBuf != IntPtr.Zero) Marshal.FreeHGlobal(pBuf);
+        catch (Exception ex)
+        {
+            Debug.LogError("[EpsonInkMonitor] Check ink exception: " + ex.Message);
+            FireIfChanged(false, false, "<color=red>Ink check exception: " + ex.Message + "</color>");
+        }
+        finally
+        {
+            if (pBuffer != IntPtr.Zero) Marshal.FreeHGlobal(pBuffer);
             if (hPrinter != IntPtr.Zero) PSM_ClosePrinter(hPrinter);
         }
     }
 
+
     private void ParseInkInfo(IntPtr pInfo)
     {
-        uint count = (uint)Marshal.ReadInt32(pInfo, 4);
-        if (count == 0 || count > MAX_INK_SLOTS) {
-            FireIfChanged(false, false, "Printer Found\n<color=yellow>Reading Ink Info...</color>");
+        int count = Marshal.ReadInt32(pInfo, 4);
+
+        if (count <= 0 || count > MAX_INK_SLOTS)
+        {
+            FireIfChanged(false, false, "<color=yellow>Printer found, but ink data is empty or invalid.</color>");
             return;
         }
 
-        bool low = false, empty = false;
-        var sb = new System.Text.StringBuilder();
-        var payload = new InkStatusPayload { inks = new System.Collections.Generic.List<InkEntry>() };
+        bool low = false;
+        bool empty = false;
 
-        for (int i = 0; i < (int)count; i++)
+        var message = new System.Text.StringBuilder();
+        var payload = new InkStatusPayload
         {
-            int off = INFO_HEADER_SIZE + i * INK_INFO_ELEMENT_SIZE;
-            uint id = (uint)Marshal.ReadInt32(pInfo, off);
-            int lvl = Marshal.ReadInt32(pInfo, off + 4);
-            uint flg = (uint)Marshal.ReadInt32(pInfo, off + 8);
+            inks = new System.Collections.Generic.List<InkEntry>()
+        };
 
-            string name = ColorName(id);
-            bool e = (flg & INK_STATUS_EMPTY) != 0 || lvl <= emptyThreshold;
-            bool l = (flg & INK_STATUS_LOW) != 0 || lvl <= lowThreshold;
+        for (int i = 0; i < count; i++)
+        {
+            int offset = INFO_HEADER_SIZE + i * INK_INFO_ELEMENT_SIZE;
 
-            if (e) empty = true; else if (l) low = true;
-            string st = e ? "Empty" : (l ? "Low" : "OK");
-            string col = e ? "#FF0000" : (l ? "#FFFF00" : "#00FF00");
+            uint colorId = (uint)Marshal.ReadInt32(pInfo, offset);
+            int level = Marshal.ReadInt32(pInfo, offset + 4);
+            uint flags = (uint)Marshal.ReadInt32(pInfo, offset + 8);
 
-            sb.AppendLine($"{name}: <color={col}>{st}</color>");
-            payload.inks.Add(new InkEntry { color = name.ToLower().Replace(" ",""), status = st.ToLower(), level = lvl });
+            level = Mathf.Clamp(level, 0, 100);
+
+            string colorName = ColorName(colorId);
+
+            bool isEmpty = (flags & INK_STATUS_EMPTY) != 0 || level <= emptyThreshold;
+            bool isLow = (flags & INK_STATUS_LOW) != 0 || level <= lowThreshold;
+
+            if (isEmpty)
+            {
+                empty = true;
+                low = true;
+            }
+            else if (isLow)
+            {
+                low = true;
+            }
+
+            string status = isEmpty ? "empty" : isLow ? "low" : "ok";
+            string displayStatus = isEmpty ? "Empty" : isLow ? "Low" : "OK";
+            string color = isEmpty ? "#FF0000" : isLow ? "#FFFF00" : "#00FF00";
+
+            message.AppendLine(colorName + ": <color=" + color + ">" + displayStatus + "</color> (" + level + "%)");
+
+            payload.inks.Add(new InkEntry
+            {
+                color = colorName.ToLower().Replace(" ", ""),
+                status = status,
+                level = level
+            });
         }
 
-        FireIfChanged(low, empty, sb.ToString().Trim());
+        string finalMessage = message.ToString().Trim();
+
+        FireIfChanged(low, empty, finalMessage);
         SendInkStatusToBackend(payload);
     }
 
     private void RunSimulation()
     {
-        // Simple random sim
-        var sb = new System.Text.StringBuilder();
-        var payload = new InkStatusPayload { inks = new System.Collections.Generic.List<InkEntry>() };
+        bool low = false;
+        bool empty = false;
+
+        var message = new System.Text.StringBuilder();
+        var payload = new InkStatusPayload
+        {
+            inks = new System.Collections.Generic.List<InkEntry>()
+        };
+
         string[] colors = { "Cyan", "Magenta", "Yellow", "Black" };
-        foreach(var c in colors) {
-            int lvl = UnityEngine.Random.Range(10, 90);
-            sb.AppendLine($"{c}: <color=#00FF00>OK</color>");
-            payload.inks.Add(new InkEntry { color = c.ToLower(), status = "ok", level = lvl });
+
+        foreach (string colorName in colors)
+        {
+            int level;
+
+            switch (simulatedState)
+            {
+                case SimulatedInkState.SimulateEmpty:
+                    level = UnityEngine.Random.Range(0, emptyThreshold + 1);
+                    break;
+
+                case SimulatedInkState.SimulateLow:
+                    level = UnityEngine.Random.Range(emptyThreshold + 1, lowThreshold + 1);
+                    break;
+
+                case SimulatedInkState.Random:
+                    level = UnityEngine.Random.Range(0, 101);
+                    break;
+
+                default:
+                    level = UnityEngine.Random.Range(50, 101);
+                    break;
+            }
+
+            bool isEmpty = level <= emptyThreshold;
+            bool isLow = level <= lowThreshold;
+
+            if (isEmpty)
+            {
+                empty = true;
+                low = true;
+            }
+            else if (isLow)
+            {
+                low = true;
+            }
+
+            string status = isEmpty ? "empty" : isLow ? "low" : "ok";
+            string displayStatus = isEmpty ? "Empty" : isLow ? "Low" : "OK";
+            string displayColor = isEmpty ? "#FF0000" : isLow ? "#FFFF00" : "#00FF00";
+
+            message.AppendLine(colorName + ": <color=" + displayColor + ">" + displayStatus + "</color> (" + level + "%)");
+
+            payload.inks.Add(new InkEntry
+            {
+                color = colorName.ToLower(),
+                status = status,
+                level = level
+            });
         }
-        FireIfChanged(false, false, sb.ToString().Trim());
+
+        FireIfChanged(low, empty, message.ToString().Trim());
         SendInkStatusToBackend(payload);
     }
 
-    private void FireIfChanged(bool low, bool empty, string msg)
+    private void FireIfChanged(bool low, bool empty, string message)
     {
         if (empty) low = true;
-        if (low == _lastLow && empty == _lastEmpty && msg == _lastMsg) return;
-        _lastLow = low; _lastEmpty = empty; _lastMsg = msg;
-        IsInkLow = low; IsInkEmpty = empty; InkStatusMessage = msg;
-        OnInkStatusChanged?.Invoke(low, empty, msg);
+
+        if (low == _lastLow && empty == _lastEmpty && message == _lastMessage)
+        {
+            return;
+        }
+
+        _lastLow = low;
+        _lastEmpty = empty;
+        _lastMessage = message;
+
+        IsInkLow = low;
+        IsInkEmpty = empty;
+        InkStatusMessage = message;
+
+        OnInkStatusChanged?.Invoke(low, empty, message);
+
+        Debug.Log("[EpsonInkMonitor] Ink Status:\n" + message);
     }
 
     private void SendInkStatusToBackend(InkStatusPayload payload)
     {
-        string bid = PlayerPrefs.GetString("booth_id", "");
-        if (string.IsNullOrEmpty(bid)) return;
-        string url = $"{API.BaseURL}/api/photobooth/booths/{bid}/ink-status";
-        StartCoroutine(Post(url, JsonUtility.ToJson(payload)));
+        string boothId = PlayerPrefs.GetString("booth_id", "");
+
+        if (string.IsNullOrEmpty(boothId))
+        {
+            return;
+        }
+
+        string url = API.BaseURL + "/api/photobooth/booths/" + boothId + "/ink-status";
+        string json = JsonUtility.ToJson(payload);
+
+        StartCoroutine(PostInkStatus(url, json));
     }
 
-    private IEnumerator Post(string url, string json)
+    private IEnumerator PostInkStatus(string url, string json)
     {
-        using (UnityWebRequest req = new UnityWebRequest(url, "POST")) {
+        using (UnityWebRequest request = new UnityWebRequest(url, "POST"))
+        {
             byte[] body = System.Text.Encoding.UTF8.GetBytes(json);
-            req.uploadHandler = new UploadHandlerRaw(body);
-            req.downloadHandler = new DownloadHandlerBuffer();
-            req.SetRequestHeader("Content-Type", "application/json");
-            yield return req.SendWebRequest();
+
+            request.uploadHandler = new UploadHandlerRaw(body);
+            request.downloadHandler = new DownloadHandlerBuffer();
+            request.SetRequestHeader("Content-Type", "application/json");
+
+            yield return request.SendWebRequest();
+
+            if (request.result != UnityWebRequest.Result.Success)
+            {
+                Debug.LogWarning("[EpsonInkMonitor] Failed to send ink status: " + request.error);
+            }
         }
     }
 
-    [Serializable] public class InkStatusPayload { public System.Collections.Generic.List<InkEntry> inks; }
-    [Serializable] public class InkEntry { public string color; public string status; public int level; }
+    private void ZeroMemory(IntPtr ptr, int size)
+    {
+        for (int i = 0; i < size; i++)
+        {
+            Marshal.WriteByte(ptr, i, 0);
+        }
+    }
+
+    [Serializable]
+    public class InkStatusPayload
+    {
+        public System.Collections.Generic.List<InkEntry> inks;
+    }
+
+    [Serializable]
+    public class InkEntry
+    {
+        public string color;
+        public string status;
+        public int level;
+    }
 }
