@@ -11,10 +11,24 @@ public static class NativePrinterHelper
     public static extern bool ClosePrinter(IntPtr hPrinter);
 
     [DllImport("winspool.Drv", EntryPoint = "GetPrinterA", SetLastError = true, CharSet = CharSet.Ansi, ExactSpelling = true, CallingConvention = CallingConvention.StdCall)]
-    public static extern bool GetPrinter(IntPtr hPrinter, int dwLevel, IntPtr pPrinter, int dwBuf, out int dwNeeded);
+    public static extern bool GetPrinter(IntPtr hPrinter, int dwLevel, IntPtr pAddr, int dwBuf, out int dwNeeded);
+
+    [DllImport("winspool.drv", CharSet = CharSet.Auto, SetLastError = true)]
+    public static extern uint GetPrinterData(IntPtr hPrinter, string pValueName, out uint pType, IntPtr pData, uint nSize, out uint pcbNeeded);
+
+    [DllImport("winspool.drv", CharSet = CharSet.Auto, SetLastError = true)]
+    public static extern uint GetPrinterDataEx(IntPtr hPrinter, string pKeyName, string pValueName, out uint pType, IntPtr pData, uint nSize, out uint pcbNeeded);
+
+    [DllImport("winspool.drv", CharSet = CharSet.Auto, SetLastError = true)]
+    public static extern uint EnumPrinterDataEx(IntPtr hPrinter, string pKeyName, IntPtr pEnumValues, uint cbEnumValues, out uint pcbEnumValues, out uint pnEnumValues);
+
+
+    public const uint REG_SZ = 1;
+    public const uint REG_BINARY = 3;
+    public const uint REG_DWORD = 4;
 
     // Structure for Printer Info Level 2 (Standard Status)
-    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
     public struct PRINTER_INFO_2
     {
         [MarshalAs(UnmanagedType.LPStr)] public string pServerName;
@@ -106,6 +120,42 @@ public static class NativePrinterHelper
         return "UNKNOWN";
     }
 
+    public static string GetPrinterPort(string printerName)
+    {
+        IntPtr hPrinter;
+        if (!OpenPrinter(printerName, out hPrinter, IntPtr.Zero))
+        {
+            return null;
+        }
+
+        try
+        {
+            int dwNeeded = 0;
+            GetPrinter(hPrinter, 2, IntPtr.Zero, 0, out dwNeeded);
+            if (dwNeeded == 0) return null;
+
+            IntPtr pAddr = Marshal.AllocHGlobal(dwNeeded);
+            try
+            {
+                if (GetPrinter(hPrinter, 2, pAddr, dwNeeded, out dwNeeded))
+                {
+                    PRINTER_INFO_2 info = (PRINTER_INFO_2)Marshal.PtrToStructure(pAddr, typeof(PRINTER_INFO_2));
+                    return info.pPortName;
+                }
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(pAddr);
+            }
+        }
+        finally
+        {
+            ClosePrinter(hPrinter);
+        }
+
+        return null;
+    }
+
     private static string ParseStatusCode(uint status, uint attributes, uint jobs)
     {
         // DEBUG LOGGING
@@ -136,3 +186,4 @@ public static class NativePrinterHelper
         return "Ready";
     }
 }
+//test
