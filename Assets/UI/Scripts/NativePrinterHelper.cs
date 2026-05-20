@@ -185,5 +185,6 @@ public static class NativePrinterHelper
 
         return "Ready";
     }
+
+    // Old Bidi COM interfaces removed
 }
-//test

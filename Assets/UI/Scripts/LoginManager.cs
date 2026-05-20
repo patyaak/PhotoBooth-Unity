@@ -34,6 +34,12 @@ public class LoginManager : MonoBehaviour
     public GameObject paymentPanel;
     public GameObject blockImg;
 
+    [Header("QR Print References")]
+    public Button printQRButton;
+    public GameObject qrPrintPanel;
+    public RawImage qrPrintImage;
+    public Button qrPrintBackButton;
+
     [Header("Timeout Settings")]
     public float framePanelTimeoutSeconds = 60f;
 
@@ -61,9 +67,12 @@ public class LoginManager : MonoBehaviour
 
         if (generateQRButton) generateQRButton.onClick.AddListener(OnGenerateQRClicked);
         if (GuestButton) GuestButton.onClick.AddListener(OnGuestBtnClick);
+        if (printQRButton) printQRButton.onClick.AddListener(OnPrintQRClicked);
+        if (qrPrintBackButton) qrPrintBackButton.onClick.AddListener(OnQRPrintBackClicked);
 
         // Keep QR panel inactive on app start - user clicks button to activate
         if (qrPanel != null) qrPanel.SetActive(false);
+        if (qrPrintPanel != null) qrPrintPanel.SetActive(false);
     }
 
     private void Awake()
@@ -93,6 +102,7 @@ public class LoginManager : MonoBehaviour
         if (frameSelectionPanel != null) frameSelectionPanel.SetActive(false);
         if (paymentPanel != null) paymentPanel.SetActive(false);
         if (blockImg != null) blockImg.SetActive(false);
+        if (qrPrintPanel != null) qrPrintPanel.SetActive(false);
 
         //show back button
         if (frameManager != null && frameManager.backButton != null)
@@ -138,6 +148,66 @@ public class LoginManager : MonoBehaviour
         }
 
         Debug.Log("✅ Ready for next customer!");
+    }
+
+    // QR PRINT FUNCTIONALITY
+    private void OnPrintQRClicked()
+    {
+        AudioManager.Instance?.PlayClick();
+
+        string currentBooth = PlayerPrefs.GetString("booth_id", "test_booth_001");
+        string deviceId = SystemInfo.deviceUniqueIdentifier;
+        string qrContent = $"device_id={deviceId}&booth_id={currentBooth}";
+
+        if (qrPrintPanel != null)
+        {
+            qrPrintPanel.SetActive(true);
+        }
+
+        GenerateQRPrintCode(qrContent);
+    }
+
+    private void OnQRPrintBackClicked()
+    {
+        AudioManager.Instance?.PlayClick();
+        if (qrPrintPanel != null)
+        {
+            qrPrintPanel.SetActive(false);
+        }
+    }
+
+    private void GenerateQRPrintCode(string qrContent)
+    {
+        try
+        {
+            Debug.Log($"📱 Generating print QR code for content: {qrContent}");
+
+            var writer = new BarcodeWriter<Texture2D>
+            {
+                Format = BarcodeFormat.QR_CODE,
+                Options = new ZXing.Common.EncodingOptions
+                {
+                    Width = 400,
+                    Height = 400,
+                    Margin = 0
+                },
+                Renderer = new ZXing.Rendering.Texture2DRenderer()
+            };
+
+            Texture2D tex = writer.Write(qrContent);
+            if (qrPrintImage != null)
+            {
+                qrPrintImage.texture = tex;
+                qrPrintImage.rectTransform.sizeDelta = new Vector2(400, 400);
+            }
+
+            Debug.Log("✅ Print QR code generated successfully");
+        }
+        catch (Exception ex)
+        {
+            Debug.LogError($"❌ Failed to generate print QR code: {ex.Message}");
+            ShowErrorMessage("Failed to generate QR code");
+        }
     }
 
     // QR GENERATION

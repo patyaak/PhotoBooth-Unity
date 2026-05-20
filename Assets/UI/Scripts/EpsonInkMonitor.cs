@@ -1,17 +1,13 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
-using System.Runtime.InteropServices;
+using System.Diagnostics;
+using System.IO;
 using UnityEngine;
 using UnityEngine.Networking;
+using UnityEngine.UI;
+using Debug = UnityEngine.Debug;
 
-/// <summary>
-/// Robust Epson SL-D500 Ink Monitor.
-/// Strategies:
-/// 1. Epson PSM SDK (Official)
-/// 2. Windows Spooler Data Bag (Best for distributed apps)
-/// 3. Native Spooler Status (Fallback)
-/// </summary>
 public class EpsonInkMonitor : MonoBehaviour
 {
     public static EpsonInkMonitor Instance { get; private set; }
@@ -35,34 +31,11 @@ public class EpsonInkMonitor : MonoBehaviour
 
     public static event Action<bool, bool, string> OnInkStatusChanged;
 
-    private const string PSM_DLL = "PSM_SDK";
+    [Header("UI References")]
+    public Button inkLevelbtn;
 
-    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Ansi)]
-    private static extern IntPtr LoadLibrary(string lpFileName);
-
-    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Ansi)]
-    private static extern IntPtr GetProcAddress(IntPtr hModule, string lpProcName);
-
-    [DllImport("kernel32.dll", SetLastError = true)]
-    private static extern bool FreeLibrary(IntPtr hModule);
-
-    [DllImport(PSM_DLL, CallingConvention = CallingConvention.Cdecl)]
-    private static extern int PSM_InitInstance();
-
-    [DllImport(PSM_DLL, CallingConvention = CallingConvention.Cdecl)]
-    private static extern int PSM_ExitInstance();
-
-    [DllImport(PSM_DLL, CallingConvention = CallingConvention.StdCall, EntryPoint = "PSM_OpenPrinter", CharSet = CharSet.Auto, ExactSpelling = false)]
-    private static extern int PSM_OpenPrinter(string printerName, out IntPtr phPrinter);
-
-    [DllImport(PSM_DLL, CallingConvention = CallingConvention.Cdecl)]
-    private static extern int PSM_ClosePrinter(IntPtr hPrinter);
-
-    [DllImport(PSM_DLL, CallingConvention = CallingConvention.Cdecl)]
-    private static extern int PSM_GetPrinterInformation(IntPtr hPrinter, int nInfoId, IntPtr pInfo, int infoSize);
-
-    private bool _sdkInitialized;
     private Coroutine _pollCoroutine;
+    private string _helperExePath;
 
     private void Awake() {
         if (Instance == null) Instance = this;
@@ -70,50 +43,202 @@ public class EpsonInkMonitor : MonoBehaviour
     }
 
     private void Start() {
-        InitSDK();
-        if (autoStartPolling) _pollCoroutine = StartCoroutine(PollRoutine());
+        // SDK polling and helper compilation commented out as requested
+        // CompileBidiHelper();
+        // if (autoStartPolling) _pollCoroutine = StartCoroutine(PollRoutine());
+
+        if (inkLevelbtn != null) {
+            inkLevelbtn.onClick.AddListener(OpenPrinterStatusWindow);
+        }
     }
 
     private void OnDestroy() {
         if (_pollCoroutine != null) StopCoroutine(_pollCoroutine);
-        if (_sdkInitialized) { PSM_ExitInstance(); _sdkInitialized = false; }
     }
 
-    private void InitSDK() {
+    /*
+    private void CompileBidiHelper() {
         try {
-            string dllPath = System.IO.Path.Combine(Application.dataPath, "Plugins", "x86_64", PSM_DLL + ".dll");
-            IntPtr hModule = LoadLibrary(dllPath);
-            if (hModule != IntPtr.Zero) {
-                Debug.Log($"[EpsonInkMonitor] {PSM_DLL}.dll loaded. Probing entry points...");
-                FreeLibrary(hModule);
+            string cacheDir = Application.temporaryCachePath.Replace('/', '\\');
+            string csPath = Path.Combine(cacheDir, "BidiScanner.cs");
+            _helperExePath = Path.Combine(cacheDir, "BidiScanner.exe");
+
+            // Normalize path separators for Windows
+            csPath = Path.GetFullPath(csPath);
+            _helperExePath = Path.GetFullPath(_helperExePath);
+
+            // Delete existing exe to force recompilation and prevent stale cached versions
+            try {
+                if (File.Exists(_helperExePath)) {
+                    File.Delete(_helperExePath);
+                }
+            } catch {}
+
+            string csCode = @"
+using System;
+using System.Runtime.InteropServices;
+class BidiScanner {
+    [ComImport, Guid(""2A614240-A4C5-4C33-BD87-1BC709331639"")] class BidiSpl {}
+    [ComImport, Guid(""B9162A23-45F9-47CC-80F5-FE0FE9B9E1A2"")] class BidiRequest {}
+    [ComImport, Guid(""D580DC0E-DE39-4649-BAA8-BF0B85A03A97""), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    interface IBidiSpl {
+        void BindDevice([In, MarshalAs(UnmanagedType.LPWStr)] string prnName, [In] int dwAccess);
+        void UnbindDevice();
+        void SendRecv([In, MarshalAs(UnmanagedType.LPWStr)] string action, [In, MarshalAs(UnmanagedType.Interface)] IBidiRequest pRequest, [Out, MarshalAs(UnmanagedType.Interface)] out IBidiRequest ppResponse);
+        void MultiSendRecv([In, MarshalAs(UnmanagedType.LPWStr)] string action, [In, MarshalAs(UnmanagedType.Interface)] object pRequestContainer, [Out, MarshalAs(UnmanagedType.Interface)] out object ppResponseContainer);
+    }
+    [ComImport, Guid(""8F348BD7-4B47-4755-8A9D-0F422DF3DC89""), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    interface IBidiRequest {
+        void SetSchema([In, MarshalAs(UnmanagedType.LPWStr)] string pszSchema);
+        void SetInputData([In] uint dwType, [In] IntPtr pData, [In] uint cbSize);
+        void GetResult([Out] out int phr);
+        void GetOutputData([In] int dwIndex, [Out, MarshalAs(UnmanagedType.LPWStr)] out string ppszSchema, [Out] out uint pdwType, [Out] out IntPtr ppData, [Out] out uint pcbSize);
+        void GetEnumCount([Out] out int pdwTotal);
+    }
+
+    [STAThread]
+    static void Main(string[] args) {
+        if (args.Length == 0) return;
+        string printerName = args[0];
+        try {
+            IBidiSpl bidi = (IBidiSpl)new BidiSpl();
+            bidi.BindDevice(printerName, 1);
+            IBidiRequest req = (IBidiRequest)new BidiRequest();
+            req.SetSchema(@""\Printer.Consumables"");
+            
+            IBidiRequest resp = null;
+            bidi.SendRecv(""Get"", req, out resp);
+            
+            int hr = 0;
+            resp.GetResult(out hr);
+            if (hr == 0) {
+                int count = 0;
+                resp.GetEnumCount(out count);
+                for (int i=0; i<count; i++) {
+                    string schema = """";
+                    uint type = 0;
+                    IntPtr pData = IntPtr.Zero;
+                    uint size = 0;
+                    resp.GetOutputData(i, out schema, out type, out pData, out size);
+                    if (type == 1) Console.WriteLine(schema + ""|"" + Marshal.ReadInt32(pData));
+                    else if (type == 4 || type == 5) Console.WriteLine(schema + ""|"" + Marshal.PtrToStringUni(pData));
+                }
             }
-            int ret = PSM_InitInstance();
-            _sdkInitialized = (ret == 0);
-            Debug.Log($"[EpsonInkMonitor] SDK Init: {(ret == 0 ? "SUCCESS" : "FAILED " + ret)}");
+            bidi.UnbindDevice();
+        } catch (Exception e) { Console.WriteLine(""ERROR|"" + e.Message); }
+    }
+}";
+            File.WriteAllText(csPath, csCode);
+
+            // Compile using the standard Windows .NET framework compiler
+            string cscPath = @"C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe";
+            if (!File.Exists(cscPath)) cscPath = @"C:\Windows\Microsoft.NET\Framework\v4.0.30319\csc.exe";
+
+            if (File.Exists(cscPath)) {
+                Debug.Log($"[EpsonInkMonitor] Found compiler at '{cscPath}'. Compiling '{csPath}' to '{_helperExePath}'...");
+                ProcessStartInfo psi = new ProcessStartInfo(cscPath, $"/nologo /out:\"{_helperExePath}\" \"{csPath}\"") {
+                    CreateNoWindow = true, 
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true
+                };
+                
+                Process proc = Process.Start(psi);
+                if (proc != null) {
+                    string cscOut = proc.StandardOutput.ReadToEnd();
+                    string cscErr = proc.StandardError.ReadToEnd();
+                    proc.WaitForExit();
+
+                    if (!File.Exists(_helperExePath)) {
+                        Debug.LogError($"[EpsonInkMonitor] csc.exe failed to compile BidiHelper!\nOut: {cscOut}\nErr: {cscErr}");
+                    } else {
+                        Debug.Log("[EpsonInkMonitor] Compiled External BidiHelper successfully at: " + _helperExePath);
+                    }
+                }
+            } else {
+                Debug.LogWarning("[EpsonInkMonitor] csc.exe not found on system. Cannot compile BidiHelper.");
+            }
         } catch (Exception ex) {
-            Debug.LogError("[EpsonInkMonitor] SDK Init Exception: " + ex.Message);
+            Debug.LogError("[EpsonInkMonitor] Failed to compile BidiHelper: " + ex.Message);
         }
     }
+    */
 
+    private string GetSelectedPrinter() {
+        string selected = "";
+        var pManagerType = Type.GetType("PrintingManager");
+        if (pManagerType != null) {
+            var instanceProp = pManagerType.GetProperty("Instance", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
+            if (instanceProp != null) {
+                var instance = instanceProp.GetValue(null);
+                if (instance != null) {
+                    var selectedProp = pManagerType.GetField("selectedPrinter", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
+                    if (selectedProp != null) selected = selectedProp.GetValue(instance) as string;
+                }
+            }
+        }
+        if (string.IsNullOrEmpty(selected)) {
+            foreach (string pName in System.Drawing.Printing.PrinterSettings.InstalledPrinters) {
+                if (pName.ToUpper().Contains("EPSON") || pName.ToUpper().Contains("SL-D")) {
+                    selected = pName; break;
+                }
+            }
+        }
+        return string.IsNullOrEmpty(selected) ? "EPSON SL-D500 Series" : selected;
+    }
+
+    /*
     private IEnumerator PollRoutine() {
         while (true) {
             bool found = false;
             List<InkEntry> currentInks = new List<InkEntry>();
+            string printerName = GetSelectedPrinter();
+            string portName = NativePrinterHelper.GetPrinterPort(printerName);
+            string ip = ExtractIP(portName);
 
-            // 1. Try SDK
-            if (_sdkInitialized) {
-                currentInks = CheckInkSDK();
-                if (currentInks.Count > 0) found = true;
+            Debug.Log($"[EpsonInkMonitor] Polling printer. Detected Name: '{printerName}', Detected Port: '{portName}', Extracted IP: '{ip}'");
+
+            // 1. Try Web Scraper (if printer is on the Network and has an IP)
+            if (!string.IsNullOrEmpty(ip)) {
+                Debug.Log("[EpsonInkMonitor] Attempting Strategy 1: Web Scraper...");
+                yield return CheckInkWebScraper(ip, (inks) => {
+                    if (inks != null && inks.Count > 0) {
+                        currentInks = inks;
+                        found = true;
+                        Debug.Log($"[EpsonInkMonitor] Strategy 1 (Web Scraper) SUCCESS! Found {inks.Count} inks.");
+                    } else {
+                        Debug.Log("[EpsonInkMonitor] Strategy 1 (Web Scraper) failed to return inks.");
+                    }
+                });
             }
 
-            // 2. Try Spooler Fallback
+            // 2. Try External Bidi Helper (Handles USB + Spooler Network fallback)
+            if (!found && File.Exists(_helperExePath)) {
+                Debug.Log($"[EpsonInkMonitor] Attempting Strategy 2: External Bidi Helper ({_helperExePath})...");
+                currentInks = CheckInkExternal(printerName);
+                if (currentInks.Count > 0) {
+                    found = true;
+                    Debug.Log($"[EpsonInkMonitor] Strategy 2 (Bidi Helper) SUCCESS! Found {currentInks.Count} inks.");
+                } else {
+                    Debug.Log("[EpsonInkMonitor] Strategy 2 (Bidi Helper) failed to return inks.");
+                }
+            }
+
+            // 3. Try Windows Registry Scanner (Deep fallback for USB Epson Drivers)
             if (!found) {
-                currentInks = CheckInkSpooler();
-                if (currentInks.Count > 0) found = true;
+                Debug.Log("[EpsonInkMonitor] Attempting Strategy 3: Registry Scanner...");
+                currentInks = CheckInkRegistry(printerName);
+                if (currentInks.Count > 0) {
+                    found = true;
+                    Debug.Log($"[EpsonInkMonitor] Strategy 3 (Registry Scanner) SUCCESS! Found {currentInks.Count} inks.");
+                } else {
+                    Debug.Log("[EpsonInkMonitor] Strategy 3 (Registry Scanner) failed to return inks.");
+                }
             }
 
-            // 3. Try Simulation
+            // Fallback: Simulation
             if (!found && simulatedState != SimulatedInkState.None) {
+                Debug.Log("[EpsonInkMonitor] Falling back to Strategy 4: Simulation.");
                 currentInks = GetSimulatedInks();
                 found = true;
             }
@@ -125,172 +250,161 @@ public class EpsonInkMonitor : MonoBehaviour
         }
     }
 
-    private List<InkEntry> CheckInkSDK() {
-        List<InkEntry> results = new List<InkEntry>();
-        IntPtr hPrinter = IntPtr.Zero;
-        
-        // Aggressive Discovery: Try every installed printer that looks like an Epson
-        foreach (string pName in System.Drawing.Printing.PrinterSettings.InstalledPrinters) {
-            if (pName.ToUpper().Contains("EPSON") || pName.ToUpper().Contains("SL-D")) {
-                if (TryOpen(pName, out hPrinter)) break;
-                
-                string port = NativePrinterHelper.GetPrinterPort(pName);
-                if (!string.IsNullOrEmpty(port)) {
-                    if (TryOpen(port, out hPrinter)) break;
-                    if (TryOpen("ESD:" + port, out hPrinter)) break;
-                    if (TryOpen("PRN:" + port, out hPrinter)) break;
-                }
+    private string ExtractIP(string portName) {
+        if (string.IsNullOrEmpty(portName)) return null;
+        System.Text.RegularExpressions.Match m = System.Text.RegularExpressions.Regex.Match(portName, @"\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b");
+        return m.Success ? m.Value : null;
+    }
 
-                // Try model-only variations
-                if (TryOpen("SL-D500", out hPrinter)) break;
-                if (TryOpen("EPSON SL-D500", out hPrinter)) break;
-            }
-        }
+    private IEnumerator CheckInkWebScraper(string ip, Action<List<InkEntry>> onComplete) {
+        // Try the standard Epson Web GUI paths
+        string[] urlsToTry = {
+            $"http://{ip}/PRESENTATION/HTML/TOP/PRTINFO.HTML",
+            $"http://{ip}/"
+        };
 
-        // Fallback: Try common ports directly
-        if (hPrinter == IntPtr.Zero) {
-            if (TryOpen("", out hPrinter)) { } // Default/Empty
-            else if (TryOpen(null, out hPrinter)) { } // Null
-            else {
-                for (int i = 1; i <= 8; i++) {
-                    string p = "USB00" + i;
-                    if (TryOpen(p, out hPrinter)) break;
-                    if (TryOpen("ESD:" + p, out hPrinter)) break;
-                }
-            }
-        }
+        List<InkEntry> foundInks = new List<InkEntry>();
 
-        if (hPrinter != IntPtr.Zero) {
-            try {
-                int size = 8 + (8 * 12) + 512;
-                IntPtr buf = Marshal.AllocHGlobal(size);
-                try {
-                    if (PSM_GetPrinterInformation(hPrinter, 1, buf, size) == 0) {
-                        int count = Marshal.ReadInt32(buf, 4);
-                        for (int i = 0; i < count; i++) {
-                            IntPtr item = new IntPtr(buf.ToInt64() + 8 + (i * 12));
-                            results.Add(new InkEntry {
-                                colorId = (uint)Marshal.ReadInt32(item, 0),
-                                level = Marshal.ReadInt32(item, 4),
-                                status = (uint)Marshal.ReadInt32(item, 8)
-                            });
+        foreach (string url in urlsToTry) {
+            using (UnityWebRequest req = UnityWebRequest.Get(url)) {
+                req.timeout = 5;
+                yield return req.SendWebRequest();
+
+                if (req.result == UnityWebRequest.Result.Success) {
+                    string html = req.downloadHandler.text;
+                    
+                    // Epson usually draws ink bars using images like 'Ink_K.PNG' and sets their 'height' to max 50px.
+                    // SL-D500 colors: Black (K), Cyan (C), Magenta (M), Yellow (Y), Light Cyan (LC), Light Magenta (LM)
+                    string[] colors = { "K", "M", "Y", "C", "LC", "LM" };
+                    uint[] colorIds = { 3, 1, 2, 0, 4, 5 };
+                    
+                    for (int i = 0; i < colors.Length; i++) {
+                        // Regex looks for Ink_X.PNG followed closely by a height attribute
+                        string pattern = $@"Ink_{colors[i]}\.PNG.*?height['""]?\s*[:=]\s*['""]?(\d+)";
+                        var match = System.Text.RegularExpressions.Regex.Match(html, pattern, System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Singleline);
+                        
+                        if (match.Success) {
+                            int height = int.Parse(match.Groups[1].Value);
+                            // Convert 50px max height to 100%
+                            int percentage = Mathf.Clamp(Mathf.RoundToInt((height / 50f) * 100f), 0, 100);
+                            foundInks.Add(new InkEntry { colorId = colorIds[i], level = percentage, status = 0 });
                         }
                     }
-                } finally { Marshal.FreeHGlobal(buf); }
-            } finally { PSM_ClosePrinter(hPrinter); }
+
+                    if (foundInks.Count > 0) {
+                        Debug.Log($"[EpsonInkMonitor] Web Scraper successfully found {foundInks.Count} inks at {url}");
+                        break; // Stop trying other URLs if we found data
+                    }
+                }
+            }
+        }
+        
+        onComplete(foundInks);
+    }
+
+    private List<InkEntry> CheckInkRegistry(string printerName) {
+        List<InkEntry> results = new List<InkEntry>();
+        try {
+            string path = $@"SYSTEM\CurrentControlSet\Control\Print\Printers\{printerName}\PrinterDriverData";
+            Debug.Log($"[EpsonInkMonitor] Checking Registry at: HKLM\\{path}");
+            using (var key = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(path)) {
+                if (key != null) {
+                    Debug.Log("[EpsonInkMonitor] HKLM Registry key successfully opened!");
+                    int k = -1, c = -1, m = -1, y = -1, lc = -1, lm = -1, mb = -1;
+                    string[] valNames = key.GetValueNames();
+                    Debug.Log($"[EpsonInkMonitor] Registry value count: {valNames.Length}. Names: {string.Join(", ", valNames)}");
+                    
+                    foreach (string v in valNames) {
+                        string vu = v.ToUpper();
+                        if (vu.Contains("INK") || vu.Contains("LEVEL") || vu.Contains("REMAIN") || vu.Contains("STATUS")) {
+                            int level = -1;
+                            object val = key.GetValue(v);
+                            if (val is int i) level = i;
+                            else if (val is string s) int.TryParse(s, out level);
+
+                            Debug.Log($"[EpsonInkMonitor] Registry ink key found: '{v}' = {val} (parsed: {level})");
+
+                            if (level >= 0 && level <= 100) {
+                                if (vu.Contains("K") || vu.Contains("BLACK")) k = level;
+                                else if (vu.Contains("LC") || vu.Contains("LIGHTCYAN")) lc = level;
+                                else if (vu.Contains("LM") || vu.Contains("LIGHTMAGENTA")) lm = level;
+                                else if (vu.Contains("C") || vu.Contains("CYAN")) c = level;
+                                else if (vu.Contains("M") || vu.Contains("MAGENTA")) m = level;
+                                else if (vu.Contains("Y") || vu.Contains("YELLOW")) y = level;
+                                else if (vu.Contains("BOX") || vu.Contains("MAIN")) mb = level;
+                            }
+                        }
+                    }
+                    if (k != -1) results.Add(new InkEntry { colorId = 3, level = k, status = 0 });
+                    if (c != -1) results.Add(new InkEntry { colorId = 0, level = c, status = 0 });
+                    if (m != -1) results.Add(new InkEntry { colorId = 1, level = m, status = 0 });
+                    if (y != -1) results.Add(new InkEntry { colorId = 2, level = y, status = 0 });
+                    if (lc != -1) results.Add(new InkEntry { colorId = 4, level = lc, status = 0 });
+                    if (lm != -1) results.Add(new InkEntry { colorId = 5, level = lm, status = 0 });
+                    if (mb != -1) results.Add(new InkEntry { colorId = 10, level = mb, status = 0 });
+                } else {
+                    Debug.LogWarning($"[EpsonInkMonitor] Registry key path HKLM\\{path} does not exist.");
+                }
+            }
+        } catch (Exception ex) {
+            Debug.LogWarning("[EpsonInkMonitor] Registry Scanner failed: " + ex.Message);
         }
         return results;
     }
 
-    private bool TryOpen(string name, out IntPtr hPrinter) {
-        hPrinter = IntPtr.Zero;
-        try {
-            int ret = PSM_OpenPrinter(name, out hPrinter);
-            if (ret == 0 && hPrinter != IntPtr.Zero) {
-                Debug.Log($"[EpsonInkMonitor] Successfully connected to printer via: '{name}'");
-                return true;
-            }
-            if (ret != -2) Debug.Log($"[EpsonInkMonitor] PSM_OpenPrinter('{name}') returned: {ret}");
-        } catch (Exception ex) {
-            Debug.LogWarning($"[EpsonInkMonitor] PSM_OpenPrinter('{name}') exception: {ex.Message}");
-        }
-        return false;
-    }
-
-    private List<InkEntry> CheckInkSpooler() {
+    private List<InkEntry> CheckInkExternal(string printerName) {
         List<InkEntry> results = new List<InkEntry>();
-        string selected = "";
-        
-        // 1. Try to get the selected printer from PrintingManager
-        // Note: Using reflection or dynamic here if PrintingManager doesn't exist? No, it's in the same project.
-        var pManagerType = Type.GetType("PrintingManager");
-        if (pManagerType != null) {
-            var instanceProp = pManagerType.GetProperty("Instance", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
-            if (instanceProp != null) {
-                var instance = instanceProp.GetValue(null);
-                if (instance != null) {
-                    var selectedProp = pManagerType.GetField("selectedPrinter", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
-                    if (selectedProp != null) {
-                        selected = selectedProp.GetValue(instance) as string;
-                    }
-                }
-            }
-        }
-        
-        // Fallback to installed printers if not selected
-        if (string.IsNullOrEmpty(selected)) {
-            foreach (string pName in System.Drawing.Printing.PrinterSettings.InstalledPrinters) {
-                if (pName.ToUpper().Contains("EPSON") || pName.ToUpper().Contains("SL-D")) {
-                    selected = pName;
-                    break;
-                }
-            }
-        }
-        if (string.IsNullOrEmpty(selected)) selected = "EPSON SL-D500 Series";
-
-        IntPtr hW32 = IntPtr.Zero;
-
-        if (NativePrinterHelper.OpenPrinter(selected, out hW32, IntPtr.Zero)) {
-            try {
-                // Try several common Epson Data Bags / Keys
-                string[] keysToTry = { "StatusMonitor:InkLevel", "StatusMonitor:Status", "InkLevel", "PrinterDriverData" };
+        try {
+            Debug.Log($"[EpsonInkMonitor] Spawning BidiScanner.exe \"{printerName}\"");
+            ProcessStartInfo psi = new ProcessStartInfo(_helperExePath, $"\"{printerName}\"") {
+                CreateNoWindow = true,
+                UseShellExecute = false,
+                RedirectStandardOutput = true
+            };
+            
+            Process proc = Process.Start(psi);
+            if (proc != null) {
+                string output = proc.StandardOutput.ReadToEnd();
+                proc.WaitForExit(3000);
                 
-                foreach (string key in keysToTry) {
-                    uint type, needed;
-                    if (NativePrinterHelper.GetPrinterData(hW32, key, out type, IntPtr.Zero, 0, out needed) == 0 && needed > 0) {
-                        IntPtr pData = Marshal.AllocHGlobal((int)needed);
-                        try {
-                            if (NativePrinterHelper.GetPrinterData(hW32, key, out type, pData, needed, out needed) == 0) {
-                                byte[] rawData = new byte[needed];
-                                Marshal.Copy(pData, rawData, 0, (int)needed);
-                                
-                                List<int> foundLevels = new List<int>();
-                                // Heuristically parse binary data for percentages (1-100)
-                                if (type == NativePrinterHelper.REG_BINARY || type == NativePrinterHelper.REG_DWORD) {
-                                    for (int i = 0; i < rawData.Length; i++) {
-                                        // Ignore 0 and common memory padding values like 255
-                                        if (rawData[i] > 0 && rawData[i] <= 100) {
-                                            foundLevels.Add(rawData[i]);
-                                        }
-                                    }
-                                }
-                                
-                                // Epson usually has at least 4 inks (CMYK)
-                                if (foundLevels.Count >= 4) {
-                                    results.Add(new InkEntry { colorId = 0, level = foundLevels[0], status = 0 }); // Cyan
-                                    results.Add(new InkEntry { colorId = 1, level = foundLevels[1], status = 0 }); // Magenta
-                                    results.Add(new InkEntry { colorId = 2, level = foundLevels[2], status = 0 }); // Yellow
-                                    results.Add(new InkEntry { colorId = 3, level = foundLevels[3], status = 0 }); // Black
-                                    
-                                    // If we find maintenance tank (often 5th or 6th value)
-                                    if (foundLevels.Count >= 5) {
-                                        results.Add(new InkEntry { colorId = 10, level = foundLevels[4], status = 0 }); // Maintenance
-                                    }
-                                    break; // Successfully found data, break out of key search loop
-                                }
-                            }
-                        } catch (Exception ex) {
-                            Debug.LogWarning($"[EpsonInkMonitor] Error parsing {key}: {ex.Message}");
-                        } finally { 
-                            Marshal.FreeHGlobal(pData); 
+                Debug.Log($"[EpsonInkMonitor] BidiScanner raw stdout:\n{output}");
+                
+                List<int> foundLevels = new List<int>();
+                
+                foreach(string line in output.Split('\n')) {
+                    string trimmed = line.Trim();
+                    if (string.IsNullOrEmpty(trimmed)) continue;
+                    if (trimmed.StartsWith("ERROR|")) {
+                        Debug.LogWarning("[EpsonInkMonitor] External Helper Error: " + trimmed.Substring(6));
+                        continue;
+                    }
+                    
+                    string[] parts = trimmed.Split('|');
+                    if (parts.Length == 2) {
+                        int parsed;
+                        if (int.TryParse(parts[1], out parsed) && parsed >= 0 && parsed <= 100) {
+                            foundLevels.Add(parsed);
                         }
                     }
                 }
                 
-                // If we STILL don't have ink data but we successfully opened the printer, 
-                // and the user has a critical deadline, provide a stable fallback so the UI works
-                // instead of crashing or showing 'Printer not found'.
-                if (results.Count == 0) {
-                    Debug.Log("[EpsonInkMonitor] Native query succeeded but no valid ink data found in spooler. Using fallback data.");
-                    results.Add(new InkEntry { colorId = 0, level = 95, status = 0 });
-                    results.Add(new InkEntry { colorId = 1, level = 90, status = 0 });
-                    results.Add(new InkEntry { colorId = 2, level = 85, status = 0 });
-                    results.Add(new InkEntry { colorId = 3, level = 99, status = 0 });
+                // If we found levels (6 colors + maintenance box usually)
+                if (foundLevels.Count >= 6) {
+                    // Map SL-D500 typical output
+                    results.Add(new InkEntry { colorId = 3, level = foundLevels[0], status = 0 }); // Black
+                    results.Add(new InkEntry { colorId = 4, level = foundLevels[1], status = 0 }); // Light Cyan
+                    results.Add(new InkEntry { colorId = 1, level = foundLevels[2], status = 0 }); // Magenta
+                    results.Add(new InkEntry { colorId = 0, level = foundLevels[3], status = 0 }); // Cyan
+                    results.Add(new InkEntry { colorId = 2, level = foundLevels[4], status = 0 }); // Yellow
+                    results.Add(new InkEntry { colorId = 5, level = foundLevels[5], status = 0 }); // Light Magenta
+                    
+                    if (foundLevels.Count >= 7) {
+                        results.Add(new InkEntry { colorId = 10, level = foundLevels[6], status = 0 }); // Maintenance Box
+                    }
                 }
-                
-            } finally { NativePrinterHelper.ClosePrinter(hW32); }
-        } else {
-            Debug.LogWarning($"[EpsonInkMonitor] Failed to open printer via spooler: {selected}");
+            }
+        } catch (Exception ex) {
+            Debug.LogWarning("[EpsonInkMonitor] Failed to run External Helper: " + ex.Message);
         }
         return results;
     }
@@ -317,7 +431,8 @@ public class EpsonInkMonitor : MonoBehaviour
     private string GetColorName(uint id) {
         switch (id) {
             case 0: return "Cyan"; case 1: return "Magenta"; case 2: return "Yellow"; case 3: return "Black";
-            case 10: return "Maintenance"; default: return "Ink " + id;
+            case 4: return "Light Cyan"; case 5: return "Light Magenta";
+            case 10: return "Maintenance Box"; default: return "Ink " + id;
         }
     }
 
@@ -336,21 +451,71 @@ public class EpsonInkMonitor : MonoBehaviour
             yield return req.SendWebRequest();
         }
     }
+    */
 
     public void ForceCheck() {
-        // Start a one-off check if not already polling
-        StopAllCoroutines();
-        StartCoroutine(PollRoutine());
+        // SDK monitoring disabled
     }
 
+    public void OpenPrinterStatusWindow()
+    {
+        try
+        {
+            string printerName = GetSelectedPrinter();
+            Debug.Log($"[EpsonInkMonitor] Attempting to open printer status window for: {printerName}");
+
+            // 1. Try to search for Epson Status Monitor executable in driver spool directory
+            string spoolDir = @"C:\Windows\System32\spool\DRIVERS\x64\3";
+            if (Directory.Exists(spoolDir))
+            {
+                string[] files = Directory.GetFiles(spoolDir, "E_*.exe");
+                if (files.Length > 0)
+                {
+                    string monitorExe = files[0];
+                    Debug.Log($"[EpsonInkMonitor] Found Epson monitor executable: {monitorExe}");
+                    
+                    ProcessStartInfo psi = new ProcessStartInfo
+                    {
+                        FileName = monitorExe,
+                        Arguments = $"/3 /PQ /N \"{printerName}\"",
+                        UseShellExecute = true,
+                        CreateNoWindow = false
+                    };
+                    Process.Start(psi);
+                    return;
+                }
+            }
+
+            // 2. Fallback: Launch printing preferences dialog via printui.dll
+            Debug.Log("[EpsonInkMonitor] Status monitor executable not found. Falling back to Printing Preferences.");
+            ProcessStartInfo printuiPsi = new ProcessStartInfo
+            {
+                FileName = "rundll32.exe",
+                Arguments = $"printui.dll,PrintUIEntry /e /n \"{printerName}\"",
+                UseShellExecute = true,
+                CreateNoWindow = false
+            };
+            Process.Start(printuiPsi);
+        }
+        catch (Exception ex)
+        {
+            Debug.LogError($"[EpsonInkMonitor] Failed to open printer status window: {ex.Message}");
+        }
+    }
+
+    /*
     private List<InkEntry> GetSimulatedInks() {
         return new List<InkEntry> { 
-            new InkEntry { colorId = 0, level = 80, status = 0 },
-            new InkEntry { colorId = 1, level = 45, status = 0 },
-            new InkEntry { colorId = 2, level = 12, status = 0 },
-            new InkEntry { colorId = 3, level = 95, status = 0 }
+            new InkEntry { colorId = 3, level = 80, status = 0 }, // Black
+            new InkEntry { colorId = 4, level = 75, status = 0 }, // Light Cyan
+            new InkEntry { colorId = 1, level = 45, status = 0 }, // Magenta
+            new InkEntry { colorId = 0, level = 60, status = 0 }, // Cyan
+            new InkEntry { colorId = 2, level = 90, status = 0 }, // Yellow
+            new InkEntry { colorId = 5, level = 30, status = 0 }, // Light Magenta
+            new InkEntry { colorId = 10, level = 85, status = 0 } // Maintenance Box
         };
     }
+    */
 
     [Serializable] public struct InkEntry { public uint colorId; public int level; public uint status; }
     [Serializable] public class InkWrapper { public List<InkEntry> inks; }
