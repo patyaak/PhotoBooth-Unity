@@ -135,7 +135,15 @@ public class PhotoShootingManager : MonoBehaviour
         }
         // -------------------------------------------------------------
 
+        bool isInverted = PlayerPrefs.GetInt("InvertedEnabled", 0) == 1;
+        ApplyInvertedState(isInverted);
+
         Debug.Log($"🖨️ Auto-print is: {(autoPrintAfterCapture ? "ENABLED ✅" : "DISABLED ⏸️")}");
+    }
+
+    public void ApplyInvertedState(bool isInverted)
+    {
+        Debug.Log($"📷 Camera Preview inverted state set to: {(isInverted ? "ON" : "OFF")}");
     }
 
     private void InitializeWebcamDropdown()
@@ -1084,16 +1092,28 @@ public class PhotoShootingManager : MonoBehaviour
 
         float targetAspect = phWidth / phHeight;
         float texAspect = (float)texW / texH;
+        
+        bool isInverted = PlayerPrefs.GetInt("InvertedEnabled", 0) == 1;
 
         if (texAspect > targetAspect)
         {
             float scale = targetAspect / texAspect;
-            raw.uvRect = new Rect((1f - scale) / 2f, 0f, scale, 1f);
+            float startX = (1f - scale) / 2f;
+            
+            if (isInverted)
+                raw.uvRect = new Rect(startX + scale, 0f, -scale, 1f);
+            else
+                raw.uvRect = new Rect(startX, 0f, scale, 1f);
         }
         else
         {
             float scale = texAspect / targetAspect;
-            raw.uvRect = new Rect(0f, (1f - scale) / 2f, 1f, scale);
+            float startY = (1f - scale) / 2f;
+            
+            if (isInverted)
+                raw.uvRect = new Rect(1f, startY, -1f, scale);
+            else
+                raw.uvRect = new Rect(0f, startY, 1f, scale);
         }
     }
 
@@ -1114,6 +1134,25 @@ public class PhotoShootingManager : MonoBehaviour
         int y = (texture.height - cropHeight) / 2;
 
         Color[] pixels = texture.GetPixels(x, y, cropWidth, cropHeight);
+        
+        // --- INVERT LOGIC ---
+        bool isInverted = PlayerPrefs.GetInt("InvertedEnabled", 0) == 1;
+        if (isInverted)
+        {
+            for (int r = 0; r < cropHeight; r++)
+            {
+                for (int c = 0; c < cropWidth / 2; c++)
+                {
+                    int leftIndex = r * cropWidth + c;
+                    int rightIndex = r * cropWidth + (cropWidth - 1 - c);
+                    Color temp = pixels[leftIndex];
+                    pixels[leftIndex] = pixels[rightIndex];
+                    pixels[rightIndex] = temp;
+                }
+            }
+        }
+        // --------------------
+
         Texture2D croppedTex = new Texture2D(cropWidth, cropHeight);
         croppedTex.SetPixels(pixels);
         croppedTex.Apply();

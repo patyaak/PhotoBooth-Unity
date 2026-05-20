@@ -464,30 +464,93 @@ class BidiScanner {
             string printerName = GetSelectedPrinter();
             Debug.Log($"[EpsonInkMonitor] Attempting to open printer status window for: {printerName}");
 
-            // 1. Try to search for Epson Status Monitor executable in driver spool directory
-            string spoolDir = @"C:\Windows\System32\spool\DRIVERS\x64\3";
-            if (Directory.Exists(spoolDir))
+            // Check if the printer is actually installed on this system
+            bool printerExists = false;
+            foreach (string pName in System.Drawing.Printing.PrinterSettings.InstalledPrinters)
             {
-                string[] files = Directory.GetFiles(spoolDir, "E_*.exe");
-                if (files.Length > 0)
+                if (pName.Equals(printerName, StringComparison.OrdinalIgnoreCase))
                 {
-                    string monitorExe = files[0];
-                    Debug.Log($"[EpsonInkMonitor] Found Epson monitor executable: {monitorExe}");
-                    
-                    ProcessStartInfo psi = new ProcessStartInfo
-                    {
-                        FileName = monitorExe,
-                        Arguments = $"/3 /PQ /N \"{printerName}\"",
-                        UseShellExecute = true,
-                        CreateNoWindow = false
-                    };
-                    Process.Start(psi);
-                    return;
+                    printerExists = true;
+                    break;
                 }
             }
 
-            // 2. Fallback: Launch printing preferences dialog via printui.dll
-            Debug.Log("[EpsonInkMonitor] Status monitor executable not found. Falling back to Printing Preferences.");
+            if (!printerExists)
+            {
+                Debug.LogWarning($"[EpsonInkMonitor] Printer '{printerName}' is not installed on this computer. Opening Windows Printers & Scanners settings page as fallback.");
+                OpenPrintersSettingsFallback();
+                return;
+            }
+
+            // 1. Search for Epson Status Monitor executable in running processes
+            // We look specifically for E_I* or E_S* processes, avoiding background tray apps like E_WTTI64.EXE
+            string monitorExe = null;
+            try
+            {
+                foreach (var proc in System.Diagnostics.Process.GetProcesses())
+                {
+                    string name = proc.ProcessName.ToUpper();
+                    if ((name.StartsWith("E_I") || name.StartsWith("E_S")) && !name.StartsWith("E_W"))
+                    {
+                        try
+                        {
+                            string path = proc.MainModule.FileName;
+                            if (!string.IsNullOrEmpty(path) && File.Exists(path))
+                            {
+                                monitorExe = path;
+                                Debug.Log($"[EpsonInkMonitor] Found monitor executable from running process: {monitorExe}");
+                                break;
+                            }
+                        }
+                        catch { }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"[EpsonInkMonitor] Process scan failed: {ex.Message}");
+            }
+
+            // 2. Search for Epson Status Monitor executable in typical installation & spool paths recursively
+            if (string.IsNullOrEmpty(monitorExe))
+            {
+                string[] searchPaths = {
+                    @"C:\Windows\System32\spool\DRIVERS",
+                    @"C:\Windows\Sysnative\spool\DRIVERS",
+                    @"C:\Program Files\Epson",
+                    @"C:\Program Files (x86)\Epson",
+                    @"C:\Program Files\Epson Software",
+                    @"C:\Program Files (x86)\Epson Software",
+                    @"C:\Program Files\Seiko Epson",
+                    @"C:\Program Files (x86)\Seiko Epson"
+                };
+
+                foreach (string basePath in searchPaths)
+                {
+                    monitorExe = FindEpsonMonitorExeSafe(basePath);
+                    if (!string.IsNullOrEmpty(monitorExe))
+                    {
+                        break;
+                    }
+                }
+            }
+
+            if (!string.IsNullOrEmpty(monitorExe) && File.Exists(monitorExe))
+            {
+                Debug.Log($"[EpsonInkMonitor] Launching Status Monitor executable: '{monitorExe}' with printer '{printerName}'");
+                ProcessStartInfo psi = new ProcessStartInfo
+                {
+                    FileName = monitorExe,
+                    Arguments = $"/3 /PQ /N \"{printerName}\"",
+                    UseShellExecute = true,
+                    CreateNoWindow = false
+                };
+                Process.Start(psi);
+                return;
+            }
+
+            // 3. Fallback: Launch printing preferences dialog via printui.dll
+            Debug.Log("[EpsonInkMonitor] Status monitor executable not found. Falling back to printing preferences.");
             ProcessStartInfo printuiPsi = new ProcessStartInfo
             {
                 FileName = "rundll32.exe",
@@ -500,7 +563,77 @@ class BidiScanner {
         catch (Exception ex)
         {
             Debug.LogError($"[EpsonInkMonitor] Failed to open printer status window: {ex.Message}");
+            OpenPrintersSettingsFallback();
         }
+    }
+
+    private void OpenPrintersSettingsFallback()
+    {
+        try
+        {
+            ProcessStartInfo psi = new ProcessStartInfo
+            {
+                FileName = "ms-settings:printers",
+                UseShellExecute = true
+            };
+            Process.Start(psi);
+        }
+        catch (Exception ex)
+        {
+            Debug.LogError($"[EpsonInkMonitor] Ultimate fallback to settings failed: {ex.Message}");
+        }
+    }
+
+    private string FindEpsonMonitorExeSafe(string rootPath)
+    {
+        if (!Directory.Exists(rootPath)) return null;
+
+        // Search patterns in order of preference. E_I*.exe is most likely the actual Status Monitor.
+        // We avoid matching E_W*.exe files which are background tray apps (like E_WTTI64.EXE).
+        string[] patterns = { "E_I*.exe", "E_S*.exe", "E_*.exe", "epson*.exe", "*status*.exe" };
+
+        foreach (string pattern in patterns)
+        {
+            Queue<string> pending = new Queue<string>();
+            pending.Enqueue(rootPath);
+
+            while (pending.Count > 0)
+            {
+                string path = pending.Dequeue();
+                try
+                {
+                    string[] files = Directory.GetFiles(path, pattern);
+                    if (files.Length > 0)
+                    {
+                        foreach (string file in files)
+                        {
+                            string fileName = Path.GetFileName(file).ToUpper();
+                            if (fileName.StartsWith("E_W"))
+                            {
+                                // Skip tray/writing helpers like E_WTTI64.EXE
+                                continue;
+                            }
+                            return file;
+                        }
+                    }
+
+                    string[] dirs = Directory.GetDirectories(path);
+                    foreach (string dir in dirs)
+                    {
+                        pending.Enqueue(dir);
+                    }
+                }
+                catch (UnauthorizedAccessException)
+                {
+                    // Safe to ignore unauthorized access
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogWarning($"[EpsonInkMonitor] Safe search warning at '{path}': {ex.Message}");
+                }
+            }
+        }
+        return null;
     }
 
     /*
