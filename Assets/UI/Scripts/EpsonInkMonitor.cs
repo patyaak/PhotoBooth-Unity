@@ -3,77 +3,88 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.Networking;
 using UnityEngine.UI;
 using Debug = UnityEngine.Debug;
-
 public class EpsonInkMonitor : MonoBehaviour
 {
     public static EpsonInkMonitor Instance { get; private set; }
-
     [Header("Polling")]
     public float pollIntervalSeconds = 10f;
     public bool autoStartPolling = true;
-
     [Header("Thresholds")]
     public int lowThreshold = 20;
     public int emptyThreshold = 5;
-
     [Header("Simulation")]
     public SimulatedInkState simulatedState = SimulatedInkState.None;
-
     public enum SimulatedInkState { None, SimulateLow, SimulateEmpty, Random }
-
     public bool IsInkLow { get; private set; }
     public bool IsInkEmpty { get; private set; }
     public string InkStatusMessage { get; private set; } = "";
-
     public static event Action<bool, bool, string> OnInkStatusChanged;
-
     [Header("UI References")]
     public Button inkLevelbtn;
-
     private Coroutine _pollCoroutine;
     private string _helperExePath;
-
     private void Awake() {
         if (Instance == null) Instance = this;
         else Destroy(gameObject);
     }
-
     private void Start() {
         // SDK polling and helper compilation commented out as requested
         // CompileBidiHelper();
         // if (autoStartPolling) _pollCoroutine = StartCoroutine(PollRoutine());
-
         if (inkLevelbtn != null) {
-            inkLevelbtn.onClick.AddListener(OpenPrinterStatusWindow);
+            inkLevelbtn.onClick.AddListener(OnInkLevelButtonClicked);
         }
     }
-
     private void OnDestroy() {
         if (_pollCoroutine != null) StopCoroutine(_pollCoroutine);
     }
 
+    public void OnInkLevelButtonClicked()
+    {
+        StartCoroutine(OpenPrinterStatusWindowCoroutine());
+    }
+
+    private IEnumerator OpenPrinterStatusWindowCoroutine()
+    {
+        string printerName = GetSelectedPrinter();
+        Debug.Log($"[EpsonInkMonitor] Ink-level button clicked, locating Epson status monitor for printer '{printerName}'...");
+
+        Task<string> locateTask = Task.Run(() => FindEpsonStatusMonitorExecutable());
+        float timeout = 8f; // give a bit more time for disk/registry scans on slower machines
+        while (!locateTask.IsCompleted && timeout > 0f)
+        {
+            timeout -= Time.deltaTime;
+            yield return null;
+        }
+
+        if (!locateTask.IsCompleted)
+        {
+            Debug.LogWarning("[EpsonInkMonitor] Epson status monitor lookup timed out. Falling back to direct printer settings.");
+        }
+
+        string monitorExe = locateTask.IsCompletedSuccessfully ? locateTask.Result : null;
+        OpenPrinterStatusWindow(monitorExe, printerName);
+    }
     /*
     private void CompileBidiHelper() {
         try {
             string cacheDir = Application.temporaryCachePath.Replace('/', '\\');
             string csPath = Path.Combine(cacheDir, "BidiScanner.cs");
             _helperExePath = Path.Combine(cacheDir, "BidiScanner.exe");
-
             // Normalize path separators for Windows
             csPath = Path.GetFullPath(csPath);
             _helperExePath = Path.GetFullPath(_helperExePath);
-
             // Delete existing exe to force recompilation and prevent stale cached versions
             try {
                 if (File.Exists(_helperExePath)) {
                     File.Delete(_helperExePath);
                 }
             } catch {}
-
             string csCode = @"
 using System;
 using System.Runtime.InteropServices;
@@ -95,7 +106,6 @@ class BidiScanner {
         void GetOutputData([In] int dwIndex, [Out, MarshalAs(UnmanagedType.LPWStr)] out string ppszSchema, [Out] out uint pdwType, [Out] out IntPtr ppData, [Out] out uint pcbSize);
         void GetEnumCount([Out] out int pdwTotal);
     }
-
     [STAThread]
     static void Main(string[] args) {
         if (args.Length == 0) return;
@@ -129,11 +139,9 @@ class BidiScanner {
     }
 }";
             File.WriteAllText(csPath, csCode);
-
             // Compile using the standard Windows .NET framework compiler
             string cscPath = @"C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe";
             if (!File.Exists(cscPath)) cscPath = @"C:\Windows\Microsoft.NET\Framework\v4.0.30319\csc.exe";
-
             if (File.Exists(cscPath)) {
                 Debug.Log($"[EpsonInkMonitor] Found compiler at '{cscPath}'. Compiling '{csPath}' to '{_helperExePath}'...");
                 ProcessStartInfo psi = new ProcessStartInfo(cscPath, $"/nologo /out:\"{_helperExePath}\" \"{csPath}\"") {
@@ -148,7 +156,6 @@ class BidiScanner {
                     string cscOut = proc.StandardOutput.ReadToEnd();
                     string cscErr = proc.StandardError.ReadToEnd();
                     proc.WaitForExit();
-
                     if (!File.Exists(_helperExePath)) {
                         Debug.LogError($"[EpsonInkMonitor] csc.exe failed to compile BidiHelper!\nOut: {cscOut}\nErr: {cscErr}");
                     } else {
@@ -163,7 +170,6 @@ class BidiScanner {
         }
     }
     */
-
     private string GetSelectedPrinter() {
         string selected = "";
         var pManagerType = Type.GetType("PrintingManager");
@@ -186,7 +192,6 @@ class BidiScanner {
         }
         return string.IsNullOrEmpty(selected) ? "EPSON SL-D500 Series" : selected;
     }
-
     /*
     private IEnumerator PollRoutine() {
         while (true) {
@@ -195,9 +200,7 @@ class BidiScanner {
             string printerName = GetSelectedPrinter();
             string portName = NativePrinterHelper.GetPrinterPort(printerName);
             string ip = ExtractIP(portName);
-
             Debug.Log($"[EpsonInkMonitor] Polling printer. Detected Name: '{printerName}', Detected Port: '{portName}', Extracted IP: '{ip}'");
-
             // 1. Try Web Scraper (if printer is on the Network and has an IP)
             if (!string.IsNullOrEmpty(ip)) {
                 Debug.Log("[EpsonInkMonitor] Attempting Strategy 1: Web Scraper...");
@@ -211,7 +214,6 @@ class BidiScanner {
                     }
                 });
             }
-
             // 2. Try External Bidi Helper (Handles USB + Spooler Network fallback)
             if (!found && File.Exists(_helperExePath)) {
                 Debug.Log($"[EpsonInkMonitor] Attempting Strategy 2: External Bidi Helper ({_helperExePath})...");
@@ -223,7 +225,6 @@ class BidiScanner {
                     Debug.Log("[EpsonInkMonitor] Strategy 2 (Bidi Helper) failed to return inks.");
                 }
             }
-
             // 3. Try Windows Registry Scanner (Deep fallback for USB Epson Drivers)
             if (!found) {
                 Debug.Log("[EpsonInkMonitor] Attempting Strategy 3: Registry Scanner...");
@@ -235,41 +236,33 @@ class BidiScanner {
                     Debug.Log("[EpsonInkMonitor] Strategy 3 (Registry Scanner) failed to return inks.");
                 }
             }
-
             // Fallback: Simulation
             if (!found && simulatedState != SimulatedInkState.None) {
                 Debug.Log("[EpsonInkMonitor] Falling back to Strategy 4: Simulation.");
                 currentInks = GetSimulatedInks();
                 found = true;
             }
-
             UpdateStatus(currentInks);
             if (found) SendToBackend(currentInks);
-
             yield return new WaitForSeconds(pollIntervalSeconds);
         }
     }
-
     private string ExtractIP(string portName) {
         if (string.IsNullOrEmpty(portName)) return null;
         System.Text.RegularExpressions.Match m = System.Text.RegularExpressions.Regex.Match(portName, @"\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b");
         return m.Success ? m.Value : null;
     }
-
     private IEnumerator CheckInkWebScraper(string ip, Action<List<InkEntry>> onComplete) {
         // Try the standard Epson Web GUI paths
         string[] urlsToTry = {
             $"http://{ip}/PRESENTATION/HTML/TOP/PRTINFO.HTML",
             $"http://{ip}/"
         };
-
         List<InkEntry> foundInks = new List<InkEntry>();
-
         foreach (string url in urlsToTry) {
             using (UnityWebRequest req = UnityWebRequest.Get(url)) {
                 req.timeout = 5;
                 yield return req.SendWebRequest();
-
                 if (req.result == UnityWebRequest.Result.Success) {
                     string html = req.downloadHandler.text;
                     
@@ -290,7 +283,6 @@ class BidiScanner {
                             foundInks.Add(new InkEntry { colorId = colorIds[i], level = percentage, status = 0 });
                         }
                     }
-
                     if (foundInks.Count > 0) {
                         Debug.Log($"[EpsonInkMonitor] Web Scraper successfully found {foundInks.Count} inks at {url}");
                         break; // Stop trying other URLs if we found data
@@ -301,7 +293,6 @@ class BidiScanner {
         
         onComplete(foundInks);
     }
-
     private List<InkEntry> CheckInkRegistry(string printerName) {
         List<InkEntry> results = new List<InkEntry>();
         try {
@@ -321,9 +312,7 @@ class BidiScanner {
                             object val = key.GetValue(v);
                             if (val is int i) level = i;
                             else if (val is string s) int.TryParse(s, out level);
-
                             Debug.Log($"[EpsonInkMonitor] Registry ink key found: '{v}' = {val} (parsed: {level})");
-
                             if (level >= 0 && level <= 100) {
                                 if (vu.Contains("K") || vu.Contains("BLACK")) k = level;
                                 else if (vu.Contains("LC") || vu.Contains("LIGHTCYAN")) lc = level;
@@ -351,7 +340,6 @@ class BidiScanner {
         }
         return results;
     }
-
     private List<InkEntry> CheckInkExternal(string printerName) {
         List<InkEntry> results = new List<InkEntry>();
         try {
@@ -408,11 +396,9 @@ class BidiScanner {
         }
         return results;
     }
-
     private void UpdateStatus(List<InkEntry> inks) {
         bool low = false, empty = false;
         string msg = "";
-
         if (inks.Count == 0) {
             msg = "<color=red>Printer not found or SDK error.</color>";
         } else {
@@ -423,11 +409,9 @@ class BidiScanner {
                 else if (ink.level <= lowThreshold) low = true;
             }
         }
-
         IsInkLow = low; IsInkEmpty = empty; InkStatusMessage = msg;
         OnInkStatusChanged?.Invoke(low, empty, msg);
     }
-
     private string GetColorName(uint id) {
         switch (id) {
             case 0: return "Cyan"; case 1: return "Magenta"; case 2: return "Yellow"; case 3: return "Black";
@@ -435,14 +419,12 @@ class BidiScanner {
             case 10: return "Maintenance Box"; default: return "Ink " + id;
         }
     }
-
     private void SendToBackend(List<InkEntry> inks) {
         string boothId = PlayerPrefs.GetString("booth_id", "test_booth");
         string url = $"{API.BaseURL}/api/photobooth/booths/{boothId}/ink-status";
         string json = "{\"inks\":" + JsonUtility.ToJson(new InkWrapper { inks = inks }) + "}";
         StartCoroutine(PostInk(url, json));
     }
-
     private IEnumerator PostInk(string url, string json) {
         using (UnityWebRequest req = new UnityWebRequest(url, "POST")) {
             req.uploadHandler = new UploadHandlerRaw(System.Text.Encoding.UTF8.GetBytes(json));
@@ -452,16 +434,25 @@ class BidiScanner {
         }
     }
     */
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern bool SetForegroundWindow(IntPtr hWnd);
 
-    public void ForceCheck() {
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
+
+    private static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
+    private const uint SWP_NOSIZE = 0x0001;
+    private const uint SWP_NOMOVE = 0x0002;
+    private const uint SWP_SHOWWINDOW = 0x0040;
+
+    public void ForceCheck()
+    {
         // SDK monitoring disabled
     }
-
-    public void OpenPrinterStatusWindow()
+    private void OpenPrinterStatusWindow(string monitorExe, string printerName)
     {
         try
         {
-            string printerName = GetSelectedPrinter();
             Debug.Log($"[EpsonInkMonitor] Attempting to open printer status window for: {printerName}");
 
             // Check if the printer is actually installed on this system
@@ -482,56 +473,34 @@ class BidiScanner {
                 return;
             }
 
-            // 1. Search for Epson Status Monitor executable in running processes
-            // We look specifically for E_I* or E_S* processes, avoiding background tray apps like E_WTTI64.EXE
-            string monitorExe = null;
-            try
-            {
-                foreach (var proc in System.Diagnostics.Process.GetProcesses())
-                {
-                    string name = proc.ProcessName.ToUpper();
-                    if ((name.StartsWith("E_I") || name.StartsWith("E_S")) && !name.StartsWith("E_W"))
-                    {
-                        try
-                        {
-                            string path = proc.MainModule.FileName;
-                            if (!string.IsNullOrEmpty(path) && File.Exists(path))
-                            {
-                                monitorExe = path;
-                                Debug.Log($"[EpsonInkMonitor] Found monitor executable from running process: {monitorExe}");
-                                break;
-                            }
-                        }
-                        catch { }
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                Debug.LogWarning($"[EpsonInkMonitor] Process scan failed: {ex.Message}");
-            }
-
-            // 2. Search for Epson Status Monitor executable in typical installation & spool paths recursively
+            // Prefer the executable path found by the background task (passed in), otherwise try spool folder first
             if (string.IsNullOrEmpty(monitorExe))
             {
-                string[] searchPaths = {
-                    @"C:\Windows\System32\spool\DRIVERS",
-                    @"C:\Windows\Sysnative\spool\DRIVERS",
-                    @"C:\Program Files\Epson",
-                    @"C:\Program Files (x86)\Epson",
-                    @"C:\Program Files\Epson Software",
-                    @"C:\Program Files (x86)\Epson Software",
-                    @"C:\Program Files\Seiko Epson",
-                    @"C:\Program Files (x86)\Seiko Epson"
-                };
-
-                foreach (string basePath in searchPaths)
+                string spoolPath = @"C:\Windows\System32\spool\drivers\x64\3";
+                try
                 {
-                    monitorExe = FindEpsonMonitorExeSafe(basePath);
-                    if (!string.IsNullOrEmpty(monitorExe))
+                    if (Directory.Exists(spoolPath))
                     {
-                        break;
+                        string found = FindEpsonMonitorExeSafe(spoolPath);
+                        if (!string.IsNullOrEmpty(found))
+                        {
+                            monitorExe = found;
+                            Debug.Log($"[EpsonInkMonitor] Found monitor executable in spool folder: '{monitorExe}'");
+                        }
                     }
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogWarning($"[EpsonInkMonitor] Error scanning spool folder: {ex.Message}");
+                }
+            }
+
+            if (string.IsNullOrEmpty(monitorExe))
+            {
+                monitorExe = FindEpsonStatusMonitorExecutable();
+                if (!string.IsNullOrEmpty(monitorExe))
+                {
+                    Debug.Log($"[EpsonInkMonitor] Status monitor executable found: '{monitorExe}'");
                 }
             }
 
@@ -545,11 +514,54 @@ class BidiScanner {
                     UseShellExecute = true,
                     CreateNoWindow = false
                 };
-                Process.Start(psi);
+                Process proc = Process.Start(psi);
+                
+                // Try to bring the opened status monitor window to the front
+                StartCoroutine(BringWindowToFront(proc, monitorExe));
                 return;
             }
 
-            // 3. Fallback: Launch printing preferences dialog via printui.dll
+            // If we didn't find an absolute path, try launching common Epson monitor executable names
+            if (string.IsNullOrEmpty(monitorExe))
+            {
+                string[] tryNames = new string[] {
+                    "StatusMonitor3.exe",
+                    "StatusMonitor.exe",
+                    "EpsonStatusMonitor.exe",
+                    "EPJPRSts.exe",
+                    "EPSONPR.exe",
+                    "E_S10.exe",
+                    "E_S50.exe",
+                    "E_IJPLBK.exe"
+                };
+
+                foreach (var name in tryNames)
+                {
+                    try
+                    {
+                        Debug.Log($"[EpsonInkMonitor] Attempting direct launch of '{name}'...");
+                        ProcessStartInfo psi2 = new ProcessStartInfo
+                        {
+                            FileName = name,
+                            Arguments = $"/3 /PQ /N \"{printerName}\"",
+                            UseShellExecute = true,
+                            CreateNoWindow = false
+                        };
+                        var proc2 = Process.Start(psi2);
+                        if (proc2 != null)
+                        {
+                            StartCoroutine(BringWindowToFront(proc2, name));
+                            return;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.Log($"[EpsonInkMonitor] Direct launch attempt '{name}' failed: {ex.Message}");
+                    }
+                }
+            }
+
+            // Fallback: Launch printing preferences dialog via printui.dll
             Debug.Log("[EpsonInkMonitor] Status monitor executable not found. Falling back to printing preferences.");
             ProcessStartInfo printuiPsi = new ProcessStartInfo
             {
@@ -564,6 +576,56 @@ class BidiScanner {
         {
             Debug.LogError($"[EpsonInkMonitor] Failed to open printer status window: {ex.Message}");
             OpenPrintersSettingsFallback();
+        }
+    }
+
+    private IEnumerator BringWindowToFront(Process proc, string exePath)
+    {
+        // Wait a bit for the window to open
+        yield return new WaitForSeconds(1.5f);
+
+        try
+        {
+            IntPtr hWnd = IntPtr.Zero;
+
+            // If we have a process object and it has a main window handle
+            if (proc != null && !proc.HasExited)
+            {
+                proc.Refresh();
+                hWnd = proc.MainWindowHandle;
+            }
+
+            // If we couldn't get the handle from the started process (e.g. it delegates to an existing process), 
+            // search running processes for the executable
+            if (hWnd == IntPtr.Zero)
+            {
+                string exeName = Path.GetFileNameWithoutExtension(exePath);
+                Process[] procs = Process.GetProcessesByName(exeName);
+                foreach (var p in procs)
+                {
+                    if (p.MainWindowHandle != IntPtr.Zero)
+                    {
+                        hWnd = p.MainWindowHandle;
+                        break;
+                    }
+                }
+            }
+
+            if (hWnd != IntPtr.Zero)
+            {
+                Debug.Log($"[EpsonInkMonitor] Bringing window {hWnd} to front.");
+                SetForegroundWindow(hWnd);
+                // Also make it topmost briefly to ensure it punches through Unity's fullscreen
+                SetWindowPos(hWnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
+            }
+            else
+            {
+                Debug.Log("[EpsonInkMonitor] Could not find window handle to bring to front.");
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.LogWarning($"[EpsonInkMonitor] Error bringing window to front: {ex.Message}");
         }
     }
 
@@ -584,72 +646,334 @@ class BidiScanner {
         }
     }
 
+    private string FindEpsonStatusMonitorExecutable()
+    {
+        string exe = FindRunningEpsonMonitorExecutable();
+        if (!string.IsNullOrEmpty(exe))
+            return exe;
+
+        exe = FindEpsonMonitorFromRegistry();
+        if (!string.IsNullOrEmpty(exe))
+            return exe;
+
+        exe = FindEpsonMonitorFromKnownPaths();
+        if (!string.IsNullOrEmpty(exe))
+            return exe;
+
+        return null;
+    }
+
+    private string FindRunningEpsonMonitorExecutable()
+    {
+        try
+        {
+            foreach (var proc in System.Diagnostics.Process.GetProcesses())
+            {
+                try
+                {
+                    string path = proc.MainModule.FileName;
+                    if (IsEpsonStatusMonitorExecutable(path))
+                    {
+                        return path;
+                    }
+                }
+                catch { }
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.LogWarning($"[EpsonInkMonitor] Running process scan failed: {ex.Message}");
+        }
+        return null;
+    }
+
+    private string FindEpsonMonitorFromKnownPaths()
+    {
+        string[] searchRoots = {
+            Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+            Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
+            @"C:\Windows\System32\spool\drivers\x64\3",
+            @"C:\Windows\Sysnative\spool\drivers\x64\3",
+            @"C:\Windows\System32\spool\DRIVERS",
+            @"C:\Windows\Sysnative\spool\DRIVERS"
+        };
+
+        string[] knownNames = {
+            "StatusMonitor3.exe",
+            "StatusMonitor.exe",
+            "EpsonStatusMonitor.exe",
+            "E_IJPLBK.exe",
+            "E_IJPLBA.exe",
+            "E_S10.exe",
+            "E_S50.exe",
+            "E_S21.exe",
+            "EPJPRSts.exe",
+            "EPSONPR.exe"
+        };
+
+        foreach (string root in searchRoots)
+        {
+            if (string.IsNullOrEmpty(root))
+                continue;
+
+            foreach (string name in knownNames)
+            {
+                try
+                {
+                    string path = Path.Combine(root, name);
+                    if (File.Exists(path) && IsEpsonStatusMonitorExecutable(path))
+                        return path;
+                }
+                catch { }
+            }
+
+            string found = FindEpsonMonitorExeSafe(root);
+            if (!string.IsNullOrEmpty(found))
+                return found;
+        }
+
+        return null;
+    }
+
+    private bool IsEpsonStatusMonitorExecutable(string filePath)
+    {
+        if (string.IsNullOrEmpty(filePath) || !File.Exists(filePath))
+            return false;
+
+        string fileName = Path.GetFileName(filePath).ToUpperInvariant();
+        if (fileName.Contains("UNINST") || fileName.Contains("SETUP") || fileName.Contains("E_W"))
+            return false;
+
+        if (fileName.Contains("STATUSMONITOR") || fileName.Contains("EPSON") || fileName.StartsWith("E_I") || fileName.StartsWith("E_S") || fileName.StartsWith("E_"))
+        {
+            try
+            {
+                var ver = System.Diagnostics.FileVersionInfo.GetVersionInfo(filePath);
+                string desc = ver.FileDescription ?? "";
+                string prod = ver.ProductName ?? "";
+
+                bool isStatusMonitor = desc.IndexOf("Status Monitor", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                       desc.IndexOf("StatusMonitor", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                       desc.IndexOf("ステータスモニタ", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                       desc.IndexOf("Printer Window", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                       prod.IndexOf("Status Monitor", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                       prod.IndexOf("ステータスモニタ", StringComparison.OrdinalIgnoreCase) >= 0;
+
+                return isStatusMonitor || fileName.Contains("STATUS") || fileName.Contains("MONITOR");
+            }
+            catch
+            {
+                return fileName.Contains("STATUS") || fileName.Contains("MONITOR");
+            }
+        }
+
+        return false;
+    }
+
     private string FindEpsonMonitorExeSafe(string rootPath)
     {
         if (!Directory.Exists(rootPath)) return null;
 
-        // Search patterns in order of preference. E_I*.exe is most likely the actual Status Monitor.
-        // We avoid matching E_W*.exe files which are background tray apps (like E_WTTI64.EXE).
-        string[] patterns = { "E_I*.exe", "E_S*.exe", "E_*.exe", "epson*.exe", "*status*.exe" };
+        string bestExe = null;
+        int bestScore = -1;
 
-        foreach (string pattern in patterns)
+        Queue<string> pending = new Queue<string>();
+        pending.Enqueue(rootPath);
+        HashSet<string> visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        while (pending.Count > 0)
         {
-            Queue<string> pending = new Queue<string>();
-            pending.Enqueue(rootPath);
+            string path = pending.Dequeue();
+            if (visited.Contains(path)) continue;
+            visited.Add(path);
 
-            while (pending.Count > 0)
+            try
             {
-                string path = pending.Dequeue();
-                try
+                string[] files = Directory.GetFiles(path, "*.exe");
+                foreach (string file in files)
                 {
-                    string[] files = Directory.GetFiles(path, pattern);
-                    if (files.Length > 0)
+                    int score = ScoreEpsonExecutable(file);
+                    if (score > bestScore && score > 0)
                     {
-                        foreach (string file in files)
-                        {
-                            string fileName = Path.GetFileName(file).ToUpper();
-                            if (fileName.StartsWith("E_W"))
-                            {
-                                // Skip tray/writing helpers like E_WTTI64.EXE
-                                continue;
-                            }
-                            return file;
-                        }
-                    }
-
-                    string[] dirs = Directory.GetDirectories(path);
-                    foreach (string dir in dirs)
-                    {
-                        pending.Enqueue(dir);
+                        bestScore = score;
+                        bestExe = file;
                     }
                 }
-                catch (UnauthorizedAccessException)
+
+                string[] dirs = Directory.GetDirectories(path);
+                foreach (string dir in dirs)
                 {
-                    // Safe to ignore unauthorized access
+                    pending.Enqueue(dir);
+                }
+            }
+            catch (UnauthorizedAccessException)
+            {
+                // Safe to ignore unauthorized access
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"[EpsonInkMonitor] Safe search warning at '{path}': {ex.Message}");
+            }
+        }
+
+        if (bestExe != null)
+        {
+            Debug.Log($"[EpsonInkMonitor] Best executable found in '{rootPath}': {bestExe} with score {bestScore}");
+        }
+        return bestExe;
+    }
+
+    private string FindEpsonMonitorFromRegistry()
+    {
+        string[] registryPaths = {
+            @"Software\Microsoft\Windows\CurrentVersion\Run",
+            @"Software\Microsoft\Windows\CurrentVersion\RunOnce",
+            @"Software\Wow6432Node\Microsoft\Windows\CurrentVersion\Run",
+            @"Software\Wow6432Node\Microsoft\Windows\CurrentVersion\RunOnce"
+        };
+
+        Microsoft.Win32.RegistryKey[] rootKeys = {
+            Microsoft.Win32.Registry.CurrentUser,
+            Microsoft.Win32.Registry.LocalMachine
+        };
+
+        foreach (var rootKey in rootKeys)
+        {
+            foreach (var relPath in registryPaths)
+            {
+                try
+                {
+                    using (var key = rootKey.OpenSubKey(relPath))
+                    {
+                        if (key == null) continue;
+                        foreach (string valueName in key.GetValueNames())
+                        {
+                            object valObj = key.GetValue(valueName);
+                            if (valObj == null) continue;
+                            string valStr = valObj.ToString().Trim();
+                            if (string.IsNullOrEmpty(valStr)) continue;
+
+                            string exePath = ExtractPathFromCommandLine(valStr);
+                            if (!string.IsNullOrEmpty(exePath) && File.Exists(exePath))
+                            {
+                                string fileName = Path.GetFileName(exePath).ToUpper();
+                                if ((fileName.StartsWith("E_I") || fileName.StartsWith("E_S") || fileName.StartsWith("E_")) && !fileName.StartsWith("E_W"))
+                                {
+                                    var ver = System.Diagnostics.FileVersionInfo.GetVersionInfo(exePath);
+                                    string desc = ver.FileDescription ?? "";
+                                    string prod = ver.ProductName ?? "";
+                                    
+                                    bool isMatch = desc.IndexOf("Status Monitor", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                                  desc.IndexOf("StatusMonitor", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                                  desc.IndexOf("ステータスモニタ", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                                  desc.IndexOf("Printer Window", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                                  prod.IndexOf("Status Monitor", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                                  prod.IndexOf("ステータスモニタ", StringComparison.OrdinalIgnoreCase) >= 0;
+
+                                    if (isMatch)
+                                    {
+                                        Debug.Log($"[EpsonInkMonitor] Found monitor executable from registry run key '{rootKey.Name}\\{relPath}\\{valueName}': {exePath}");
+                                        return exePath;
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
                 catch (Exception ex)
                 {
-                    Debug.LogWarning($"[EpsonInkMonitor] Safe search warning at '{path}': {ex.Message}");
+                    Debug.LogWarning($"[EpsonInkMonitor] Registry search error at '{rootKey.Name}\\{relPath}': {ex.Message}");
                 }
             }
         }
         return null;
     }
 
-    /*
-    private List<InkEntry> GetSimulatedInks() {
-        return new List<InkEntry> { 
-            new InkEntry { colorId = 3, level = 80, status = 0 }, // Black
-            new InkEntry { colorId = 4, level = 75, status = 0 }, // Light Cyan
-            new InkEntry { colorId = 1, level = 45, status = 0 }, // Magenta
-            new InkEntry { colorId = 0, level = 60, status = 0 }, // Cyan
-            new InkEntry { colorId = 2, level = 90, status = 0 }, // Yellow
-            new InkEntry { colorId = 5, level = 30, status = 0 }, // Light Magenta
-            new InkEntry { colorId = 10, level = 85, status = 0 } // Maintenance Box
-        };
+    private string ExtractPathFromCommandLine(string cmdLine)
+    {
+        if (string.IsNullOrEmpty(cmdLine)) return null;
+        cmdLine = cmdLine.Trim();
+        string path = "";
+        if (cmdLine.StartsWith("\""))
+        {
+            int nextQuote = cmdLine.IndexOf("\"", 1);
+            if (nextQuote > 1)
+            {
+                path = cmdLine.Substring(1, nextQuote - 1);
+            }
+            else
+            {
+                path = cmdLine.Substring(1);
+            }
+        }
+        else
+        {
+            int spaceIndex = cmdLine.IndexOf(" ");
+            if (spaceIndex > 0)
+            {
+                path = cmdLine.Substring(0, spaceIndex);
+            }
+            else
+            {
+                path = cmdLine;
+            }
+        }
+        return path;
     }
-    */
 
+    private int ScoreEpsonExecutable(string filePath)
+    {
+        if (string.IsNullOrEmpty(filePath) || !File.Exists(filePath)) return -1;
+        string fileName = Path.GetFileName(filePath).ToUpper();
+        if (fileName.StartsWith("E_W") || fileName.Contains("UNINST") || fileName.Contains("SETUP"))
+        {
+            return -1;
+        }
+        bool hasEpsonPattern = fileName.StartsWith("E_") || fileName.Contains("EPSON") || fileName.Contains("STATUS");
+        if (!hasEpsonPattern)
+        {
+            return -1;
+        }
+        int score = 0;
+        try
+        {
+            var ver = System.Diagnostics.FileVersionInfo.GetVersionInfo(filePath);
+            string desc = ver.FileDescription ?? "";
+            string prod = ver.ProductName ?? "";
+            bool isStatusMonitor = desc.IndexOf("Status Monitor", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                  desc.IndexOf("StatusMonitor", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                  desc.IndexOf("ステータスモニタ", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                  desc.IndexOf("Printer Window", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                  prod.IndexOf("Status Monitor", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                  prod.IndexOf("ステータスモニタ", StringComparison.OrdinalIgnoreCase) >= 0;
+            if (isStatusMonitor)
+            {
+                score += 1000;
+            }
+            if (desc.IndexOf("EPSON", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                prod.IndexOf("EPSON", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                score += 100;
+            }
+        }
+        catch
+        {
+            // Ignore version info read errors, just score based on filename
+        }
+        if (fileName.StartsWith("E_YATIS") || fileName.StartsWith("E_S10") || fileName.StartsWith("E_YATI"))
+        {
+            score += 200;
+        }
+        else if (fileName.StartsWith("E_I") || fileName.StartsWith("E_S"))
+        {
+            score += 50;
+        }
+        else if (fileName.StartsWith("E_"))
+        {
+            score += 10;
+        }
+        return score;
+    }
     [Serializable] public struct InkEntry { public uint colorId; public int level; public uint status; }
     [Serializable] public class InkWrapper { public List<InkEntry> inks; }
 }
