@@ -91,8 +91,7 @@ class FrameItem : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler,IPoin
                             ? frame.number_of_layouts
                             : Mathf.Max(1, frame.number_of_shots);
         CreateLayoutSlots(slotCount);
-        // Compute the correct cache path using the same URL + MD5 hash scheme as FrameCacheManager.
-        // frame.asset_path may be relative, so resolve it to a full URL first.
+        
         string resolvedAssetUrl = PhotoBoothFrameManager.Instance != null
             ? PhotoBoothFrameManager.Instance.ResolveUrl(frame.asset_path)
             : frame.asset_path;

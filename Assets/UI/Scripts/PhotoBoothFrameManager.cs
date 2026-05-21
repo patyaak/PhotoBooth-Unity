@@ -245,12 +245,7 @@ public class PhotoBoothFrameManager : MonoBehaviour
         Debug.Log("🧹 All image and asset caches cleared.");
     }
 
-    // ==================================================================
-    // NEW: RESET TO DEFAULT CATEGORY METHOD
-    // ==================================================================
-    /// <summary>
-    /// Resets frame manager to default category - called when new customer session starts
-    /// </summary>
+   
     public void ResetToDefaultCategory()
     {
         Debug.Log("🔄 Resetting to default frame category...");
@@ -270,9 +265,7 @@ public class PhotoBoothFrameManager : MonoBehaviour
         }
         currentSelectedFrameId = ""; // Also clear the persistent ID
 
-        // ✅ FIX: Clear the in-memory sprite/thumbnail cache between customer sessions.
-        // Without this, thumbnails downloaded for a previous customer are reused for the
-        // next customer even if the frame data has changed, causing mismatched thumbnails.
+       
         imageCache.Clear();
 
         // Check if "Default" category is enabled
@@ -338,9 +331,7 @@ public class PhotoBoothFrameManager : MonoBehaviour
         Debug.Log($"✅ Reset complete. Selected category: {currentCategory}");
     }
 
-    // ==================================================================
-    // MAIN FETCH METHOD – NOW WITH MYFRAME + USER_ID FILTER SUPPORT
-    // ==================================================================
+ 
     
    
     public IEnumerator FetchFramesFromServer()
@@ -417,8 +408,7 @@ public class PhotoBoothFrameManager : MonoBehaviour
 
                     if (currentCategory == "myframe")
                     {
-                        // Some APIs might return user frames in 'my_frames', others might use the standard 'frames' field.
-                        // We check both for maximum safety.
+                        
                         if (cachedResponse?.data != null)
                         {
                             if (cachedResponse.data.my_frames != null && cachedResponse.data.my_frames.Count > 0)

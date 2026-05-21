@@ -32,10 +32,7 @@ public class DeviceRegistration : MonoBehaviour
             wifi.SetActive(false);
     }
 
-    // -------------------------------
-    // MAIN FLOW
-    // -------------------------------
-
+   
     IEnumerator RegisterFlow()
     {
         while (true)
@@ -58,10 +55,9 @@ public class DeviceRegistration : MonoBehaviour
         IsRegistrationComplete = true;
     }
 
-    // -------------------------------
+  
     // REGISTER DEVICE WITH SERVER
-    // -------------------------------
-
+    
     IEnumerator RegisterDevice()
     {
         string deviceID = SystemInfo.deviceUniqueIdentifier;
@@ -122,10 +118,9 @@ public class DeviceRegistration : MonoBehaviour
         IsRegistrationComplete = true;
     }
 
-    // -------------------------------
+  
     // LOCAL JSON SAVE
-    // -------------------------------
-
+ 
     private void SaveLocalBoothID(string boothID)
     {
         if (string.IsNullOrEmpty(boothID))
@@ -153,8 +148,7 @@ public class DeviceRegistration : MonoBehaviour
             var login = FindAnyObjectByType<VendorLogin>();
             if (login != null && login.boothIDInput != null)
             {
-                // ONLY overwrite the text if it's currently empty, 
-                // to avoid disrupting a user manually typing something else.
+                
                 if (string.IsNullOrEmpty(login.boothIDInput.text) || login.boothIDInput.text == "No Booth ID")
                     login.boothIDInput.text = boothID;
             }
@@ -167,9 +161,6 @@ public class DeviceRegistration : MonoBehaviour
         }
     }
 
-    // -------------------------------
-    // LOAD FROM LOCAL JSON
-    // -------------------------------
 
     private void LoadLocalBoothID()
     {
@@ -221,9 +212,7 @@ public class DeviceRegistration : MonoBehaviour
         Debug.Log("Loaded Booth ID: " + data.booth_id);
     }
 
-    // -------------------------------
-    // OTHER METHODS
-    // -------------------------------
+  
 
     public void QuitApp()
     {
@@ -243,9 +232,7 @@ public class DeviceRegistration : MonoBehaviour
         return "";
     }
 
-    // -----------------------------------
-    // DATA MODELS
-    // -----------------------------------
+ 
 
     [Serializable]
     public class DeviceIdPayload

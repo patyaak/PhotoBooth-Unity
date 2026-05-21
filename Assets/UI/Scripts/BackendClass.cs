@@ -1,8 +1,7 @@
 using System.Collections.Generic;
 
-// ============================================================
 // BOOTH & THEME
-// ============================================================
+
 [System.Serializable]
 public class Theme
 {
@@ -21,11 +20,11 @@ public class Booth
     public string location;
     public string status;
     public bool login_required;
-    public bool payments_enabled;         // PAYMENT FLAG
+    public bool payments_enabled;         
     public bool decoration_enabled;
     public bool default_enabled;
-    public string price;                  // Frame price
-    public string gacha_price;            // Gacha price (NEW)
+    public string price;                  
+    public string gacha_price;            
 }
 
 [System.Serializable]
@@ -43,9 +42,9 @@ public class BoothListResponse
     public BoothResponseData data;
 }
 
-// ============================================================
+
 // FRAMES
-// ============================================================
+
 [System.Serializable]
 public class FrameAssignment
 {
@@ -118,16 +117,16 @@ public class FrameAsset
     public string path;
 }
 
-// ============================================================
+
 // UPDATED FrameData - ADDED my_frames SUPPORT
-// ============================================================
+
 [System.Serializable]
 public class FrameData
 {
     public List<Frame> frames;
-    public List<Frame> my_frames;      // ADD THIS - for purchased/owned frames
-    public FrameCounts counts;         // ADD THIS - for frame counts
-    public int my_frames_count;        // ADD THIS - count of user's frames
+    public List<Frame> my_frames;      
+    public FrameCounts counts;         
+    public int my_frames_count;        
 }
 
 // ADD THIS NEW CLASS
@@ -153,9 +152,9 @@ public class GachaFrameResponse
     public Frame frame;
 }
 
-// ============================================================
+
 // PAYMENT (NEW)
-// ============================================================
+
 [System.Serializable]
 public class PaymentRequest
 {

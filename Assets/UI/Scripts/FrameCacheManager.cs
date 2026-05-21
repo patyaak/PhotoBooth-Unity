@@ -8,9 +8,7 @@ public static class FrameCacheManager
 {
     private static readonly string cacheDir = Path.Combine(Application.persistentDataPath, "FrameCache");
 
-    // ---------------------------------------------------------
-    // Helpers
-    // ---------------------------------------------------------
+  
     private static void EnsureCacheDir()
     {
         if (!Directory.Exists(cacheDir))
@@ -48,9 +46,6 @@ public static class FrameCacheManager
         return string.IsNullOrWhiteSpace(ext) ? ".png" : ext;
     }
 
-    // ---------------------------------------------------------
-    // JSON Caching
-    // ---------------------------------------------------------
     private static string GetJSONPath(string category, string boothID) =>
         Path.Combine(cacheDir, $"frames_{boothID}_{category}.json");
 
@@ -86,13 +81,7 @@ public static class FrameCacheManager
         return null;
     }
 
-    // ---------------------------------------------------------
-    // Public Path Helper
-    // ---------------------------------------------------------
-    /// <summary>
-    /// Returns the full local file path where a texture downloaded from <paramref name="url"/>
-    /// would be (or is) cached.  Use this instead of rolling your own hash logic.
-    /// </summary>
+ 
     public static string GetCachedTexturePath(string url)
     {
         if (string.IsNullOrEmpty(url)) return null;
@@ -101,9 +90,7 @@ public static class FrameCacheManager
         return Path.Combine(cacheDir, fileName);
     }
 
-    // ---------------------------------------------------------
-    // General Texture Saving (Manual Key)
-    // ---------------------------------------------------------
+
     public static void SaveTexture(Texture2D tex, string key)
     {
         if (tex == null || string.IsNullOrEmpty(key)) return;
@@ -117,9 +104,7 @@ public static class FrameCacheManager
         catch { }
     }
 
-    // ---------------------------------------------------------
-    // Texture Caching From URL
-    // ---------------------------------------------------------
+
     public static IEnumerator DownloadAndCacheTexture(string url, System.Action<Texture2D> onDone)
     {
         if (string.IsNullOrEmpty(url))
@@ -201,9 +186,6 @@ public static class FrameCacheManager
         }
     }
 
-    // ---------------------------------------------------------
-    // Load Cached Texture (ONLY from local)
-    // ---------------------------------------------------------
     public static IEnumerator LoadCachedTexture(string url, System.Action<Texture2D> onDone)
     {
         if (string.IsNullOrEmpty(url))
@@ -240,9 +222,7 @@ public static class FrameCacheManager
         }
     }
 
-    // ---------------------------------------------------------
-    // Clear Cache
-    // ---------------------------------------------------------
+  
     public static void ClearCache()
     {
         try
